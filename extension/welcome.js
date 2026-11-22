@@ -141,7 +141,7 @@ async function renderPlan() {
   if (!plan || plan.error) return;
   $('plan-free').hidden = plan.pro;
   $('plan-pro').hidden = !plan.pro;
-  const left = Math.max(0, plan.limit - plan.used);
+  const left = Math.max(0, Math.round((plan.limit - plan.used) * 10) / 10);
   $('plan-left').textContent = left;
   $('plan-limit').textContent = plan.limit;
   $('plan-fill').style.width = `${Math.round(100 * left / plan.limit)}%`;

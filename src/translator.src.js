@@ -2875,7 +2875,7 @@
       $('meter').hidden = !free;
       $('plan').hidden = false;
       if (free) {
-        const left = Math.max(0, plan.limit - plan.used);
+        const left = Math.max(0, Math.round((plan.limit - plan.used) * 10) / 10);
         $('meter-text').innerHTML = `<b>${left}</b> of ${plan.limit} free pages left today`;
         $('meter-fill').style.width = `${Math.round(100 * left / plan.limit)}%`;
         $('meter').classList.toggle('low', left <= Math.ceil(plan.limit / 6));
@@ -3058,7 +3058,7 @@
         say('Translating', 'Downloading the page…');
         const blob = await fetchBlob(page.source);
         if (blob.size > MAX_BYTES) throw new Error('The image is larger than 30 MB.');
-        const bitmap = await createImageBitmap(blob);
+        const bitmap = await createImageBitmap(blob), {width, height} = bitmap;
         try {
           if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
           await fontReady;
@@ -3071,7 +3071,7 @@
             if (!out) throw new Error('The browser could not create the translated image.');
             apply(img, page, out);
             page.status = 'done'; done++;
-            if (EXTENSION) background({type: 'used'}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
+            if (EXTENSION) background({type: 'used', image: {strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
             page.note = result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : '';
             pageCache.put(key, {blob: out, note: page.note});
           } else {
@@ -3090,6 +3090,19 @@
         renderMarks(); progress();
         if (!stopped) setTimeout(pump, 0);
       }
+    }
+
+    // Part of a long strip: stacked edge to edge with another image of the same width, or very tall.
+    function inStrip(img, width, height) {
+      if (height >= width * 3) return true;
+      const r = img.getBoundingClientRect();
+      for (const other of document.images) {
+        if (other === img || other.naturalWidth < 300) continue;
+        const o = other.getBoundingClientRect();
+        if (o.height > 50 && Math.abs(o.width - r.width) <= 2 && Math.abs(o.left - r.left) <= 2 &&
+          (Math.abs(o.top - r.bottom) <= 8 || Math.abs(r.top - o.bottom) <= 8)) return true;
+      }
+      return false;
     }
 
     function nextAfter(img) {

@@ -21,7 +21,7 @@ It works on long strips, page-by-page readers and galleries, and translates capt
 
 On first install a setup page walks you through installing Ollama and downloading a model (1.9 to 6.2 GB).
 
-30 new pages a day are free. Pro removes the limit for a one-time $6.99.
+30 new pages a day are free, and images from long strips count as half a page. Pro removes the limit for a one-time $6.99.
 
 Requirements: Windows 10 or later, macOS or Linux. A GPU with 6 GB of VRAM or more is recommended; on the CPU a page can take a minute.
 

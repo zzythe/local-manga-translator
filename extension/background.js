@@ -161,10 +161,18 @@ async function plan() {
   return {pro: await proStatus(false), used, limit: CONFIG.freePagesPerDay};
 }
 
-async function recordPage() {
+// What one translated image costs: a page, or part of one for an image of a long strip. One very
+// tall image (a whole strip chapter) counts by its length in manga pages.
+function pageCost({strip, aspect} = {}) {
+  if (!strip) return 1;
+  const pages = Math.max(1, Math.round((Number(aspect) || 1) / 1.42));
+  return Math.min(100, pages * CONFIG.stripPageWeight);
+}
+
+async function recordPage(image) {
   const {usage} = await chrome.storage.local.get('usage');
   const day = today();
-  const count = (usage?.day === day ? usage.count : 0) + 1;
+  const count = Math.round(((usage?.day === day ? usage.count : 0) + pageCost(image)) * 100) / 100;
   await chrome.storage.local.set({usage: {day, count}, lifetime: ((await chrome.storage.local.get('lifetime')).lifetime || 0) + 1});
   return plan();
 }
@@ -247,7 +255,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const answer = promise => { promise.then(reply, error => reply({error: String(error?.message || error)})); return true; };
   switch (message?.type) {
     case 'plan': return answer(plan());
-    case 'used': return answer(recordPage());
+    case 'used': return answer(recordPage(message.image));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));
     case 'buy': return answer(openCheckout());
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;

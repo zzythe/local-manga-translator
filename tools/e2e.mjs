@@ -18,8 +18,10 @@ const check = (name, ok, detail = '') => { results.push({name, ok, detail}); con
 // refuses requests without the reader page as referrer and sends no CORS headers.
 const site = createServer((req, res) => {
   res.setHeader('content-type', 'text/html');
+  // /strip: two images stacked edge to edge, like a long-strip reader.
+  const images = req.url.startsWith('/strip') ? ['strip-a.jpg', 'strip-b.jpg'] : ['page.jpg'];
   res.end(`<!doctype html><title>Reader</title><body style="margin:0;background:#111">
-    <img src="http://localhost:8766/page.jpg" style="display:block;width:900px;margin:0 auto"></body>`);
+    ${images.map(i => `<img src="http://localhost:8766/${i}" style="display:block;width:900px;margin:0 auto">`).join('')}</body>`);
 }).listen(8765);
 let refererSeen = '';
 const images = createServer((req, res) => {
@@ -82,6 +84,16 @@ try {
   await reader.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 60000});
   plan = await sw.evaluate(() => plan());
   check('reload keeps the translation on and free', plan.used === 3, JSON.stringify(plan));
+
+  // 4b. Images of a long strip count as half a page each.
+  const strip = await ctx.newPage();
+  await strip.goto('http://127.0.0.1:8765/strip');
+  await sw.evaluate(async () => { const [tab] = await chrome.tabs.query({url: 'http://127.0.0.1:8765/strip'}); await openOn(tab); });
+  await strip.waitForFunction(() => [...document.images].every(i => i.src.startsWith('blob:')), null, {timeout: 300000});
+  await strip.waitForTimeout(500);
+  plan = await sw.evaluate(() => plan());
+  check('strip images count as half a page', plan.used === 4, JSON.stringify(plan));
+  await strip.close();
 
   // 5. At the daily limit, new pages wait and the control says why.
   await sw.evaluate(async () => {
