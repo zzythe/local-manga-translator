@@ -1,11 +1,11 @@
 # Full-resolution crops for inspection: original above, translated below.
 #   python tools/quality/crop.py E35P02 x y w h [out.png] [--dir=out]
-import sys
+import os, sys
 from PIL import Image
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 d = next((a[6:] for a in sys.argv[1:] if a.startswith('--dir=')), 'out')
 name, x, y, w, h = args[0], *map(int, args[1:5])
-base = 'tools/quality/'
+base = os.path.dirname(os.path.abspath(__file__)) + '/'
 o = Image.open(base + 'pages/' + name + '.jpg').convert('RGB').crop((x, y, x + w, y + h))
 t = Image.open(base + d + '/' + name + '.png').convert('RGB').crop((x, y, x + w, y + h))
 s = 2 if max(w, h) <= 500 else 1

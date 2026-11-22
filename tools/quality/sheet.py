@@ -1,12 +1,12 @@
 # Contact sheet of every lettered and skipped item on a page, at full resolution: for each, the
 # original crop beside the translated one, with what was read and lettered. For the checklist.
 #   python tools/quality/sheet.py E35P02 [--dir=out]   ->  <dir>/<page>-items.jpg
-import json, sys
+import os, json, sys
 from PIL import Image, ImageDraw, ImageFont
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 d = next((a[6:] for a in sys.argv[1:] if a.startswith('--dir=')), 'out')
-base = 'tools/quality/'
+base = os.path.dirname(os.path.abspath(__file__)) + '/'
 name = args[0]
 log = json.load(open(f'{base}{d}/{name}.json', encoding='utf8'))
 orig = Image.open(f'{base}pages/{name}.jpg').convert('RGB')
