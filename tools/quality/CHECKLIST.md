@@ -21,7 +21,7 @@ text). Slanted sound effects are lettered along the original's axis and checked 
 
 All pages: one full run on 2026-11-22 (`run.mjs --unload --pause=30`, one page at a time, the
 model loaded again for every page), translator code as of the commit that adds this line, with
-the extension's helper models (`models/`, see the end). The translation call now streams: each
+the extension's helper models (`models/`, see the end). The translation call streams: each
 bubble is lettered as soon as its line is complete, and the finished page is made as before.
 
 With the model kept loaded, 11 pages one at a time: streaming, the first bubble is ready after
@@ -38,11 +38,11 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | …これで 出来上がり | …And that's it. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept; two lines like the original |
-| 2 | ぱらぱら (SFX) | FLUTTER | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads はらはら; should be SPRINKLE. 8b reads it right |
-| 3 | …うーん 足りなかった かも | …Hmm, maybe not enough. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | どばどば (SFX) | GLUG GLUG | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads どはどは; the glossary maps it to GLUG GLUG |
-| 5 | ざぶん (SFX) | SPLASH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads さぶん |
+| 1 | …これで 出来上がり | …And that's it, done. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept; two lines like the original |
+| 2 | ぱらぱら (SFX) | SPRINKLE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | read on a larger crop as ばらばら (was はらはら, FLUTTER); the glossary maps it to SPRINKLE. 25 px, was 16 |
+| 3 | …うーん 足りなかった かも | …Hmm, maybe I still need more. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | どばどば (SFX) | GLUG GLUG | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | read right on the larger crop. Two lines at 28 px (was 22), no smaller than the original's characters |
+| 5 | ざぶん (SFX) | SPLASH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads さぶん. 20 px, was 12 |
 
 ## E01P02 (3 items, 0 skipped)
 
@@ -50,7 +50,7 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | うん… カンペキ | Yeah… perfect. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | ダメ！ そんなことしちゃ だめなんだから | No way! You can't do that! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | パシャ (SFX) | SPLISH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the yellow splash beside it is kept |
+| 3 | パシャ (SFX) | SPLISH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the yellow splash beside it is kept. 41 px, about the original's size (was 25) |
 
 ## E35P01 (4 items, 0 skipped)
 
@@ -102,9 +102,9 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the cell bars behind it are repainted (MI-GAN). The original has a dark drop shadow; ours has none |
 | 2 | 魔法牢獄め! ああああ! | Magic prison! Aaah! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | ガラッ! (SFX) | CLANG! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
+| 3 | ガラン! (SFX) | CLATTER | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
 | 4 | もう! | Ugh! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | 何もできないってことね! | So nothing can be done, huh? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | Pepper means herself: "So I can't do anything, huh?" |
+| 5 | 何もできないってことね! | You can't do anything, huh? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | Pepper means herself: "So I can't do anything, huh?" |
 
 ## E36P03 (9 items, 0 skipped)
 
@@ -112,10 +112,10 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | しーっ ペッパー! | Shh! Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble |
 | 2 | 私 バカだった! | I was a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | was stepped and left of the middle: one row of the spiky bubble stopped at a speck of ink inside the lettering. Now I WAS / A FOOL! on one centre |
-| 3 | おとなしく して | Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 一体 誰なの?! | Who are you? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | おとなしく して | Just a little bit… | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | read as おとなく して from a clear crop: the sheet's layout changed (its sound effect is read larger) and 4b reads this crop worse on it. With loose crops 280 px instead of 360 it reads right, but E01P01's ざぶん and the roar page's フリフリ are lost (see below) |
+| 4 | 一体 誰なの?! | Who the hell are you? | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | longer wording than before: 20 of 24 px in two lines |
 | 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | read as シユウウ, still FSSSH. The original's blue glow is not reproduced |
-| 6 | しーっ! 静かにして! | Shh! Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 6 | しーっ! 静かにして! | Shh! Keep it quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 7 | 来て | Come here! | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | two lines in the room below the line above; a little left of 来て |
 | 8 | ここから 出してあげる | I'll get you out of here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 9 | シチミ? | Chitami? | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | name: Shichimi |
@@ -162,10 +162,15 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 | Sense | 51 | 5 | 8 | 1 |
 | Erased, no ghost | 64 | | | 1 |
 | Background kept | 65 | | | |
-| Fits | 59 | 5 | 0 | 1 |
+| Fits | 58 | 6 | 0 | 1 |
 | Outline matches | 62 | 2 | | 1 |
 
-The previous run: 64 translated; Sense 52 ✓, 5 ~, 7 ✗; Fits 59 ✓, 5 ~. The model gave different
+This run against the one before it (64 translated; Sense 51 ✓, 5 ~, 8 ✗; Fits 59 ✓, 5 ~): same
+totals in Sense, E01P01 #2 now right and E36P03 #3 now misread; one ~ more in Fits (E36P03 #4,
+longer wording). Sound effects are lettered no smaller than about their original characters
+(E01P01 #2, #4, #5, E01P02 #3, E36P02 #3), on two lines where the original's place allows.
+
+The run before that: 64 translated; Sense 52 ✓, 5 ~, 7 ✗; Fits 59 ✓, 5 ~. The model gave different
 wording on 8 of the 11 pages this time, with the same readings except two (E35P03 #4, E36P03 #5).
 That is the model, not the code: run again today, the code before streaming letters E35P02 and
 E35P03 pixel for pixel as this run does, and E01P01 the same as the new code run alone. Streaming
@@ -176,6 +181,33 @@ Every ✗ in Sense is the 4b model: a misread (ぱらぱら, 今のあれ), a wr
 transliterated (Rea, Shichimi; a names list in settings fixes those: `run.mjs --terms=terms.txt`).
 
 ## Found in the last runs
+
+- Two pages that can't be kept here (a Halloween page with vertical bubbles, and a page with a
+  roar across a whole panel), checked with `--pages=<folder>` and `--dump=<folder>` (every image
+  sent to the model, to see what it read):
+  - A bubble whose vertical columns start at different heights was read highest column first.
+    The sheet now lines up the tops of such columns, keeping them right to left.
+  - The large roar (グオオオン, kept and translated beside it) was read from the page as
+    グアアアア. It is now read again on a crop of its own at 640 and 896 px, with a note on the
+    kana brush lettering confuses (オ/ア, ン/ソ, ッ/ツ, ク/グ), and the reading most like the
+    others of the three is kept: ガオオオン. The model translates that as BOOM; the glossary has
+    the ガオン/グオン family and draws a drawn-out vowel out in English: GRAOOOOM.
+  - The English beside it was black with a thick grey rim that swamped its thin letters; the
+    original is black with a thin light rim. The rim's colour is now taken from the part of the
+    ring round the strokes on the far side of the background (the light line), the letters are
+    heavy brush letters with a thin rim, as large as the clear art beside the original allows
+    (up to a tenth of the page width), placed where they cross none of its strokes.
+  - A small wagging sound effect (フリフリ) was read from a crop cut to the eraser's bounds,
+    which took in the tail and cut off the first kana. Loose crops on the sheet now cover the
+    model's box too and are read at about 360 px. It reads フリフリ or ブリブリ: WAG WAG either way.
+  - スッ (thin black kana in a white rim) was taken for a tiny bubble inside the rim and
+    lettered TO… at 14 px. A block found inside a model box must now be a fair part of it, and
+    black letters inside a light rim are lettered black with that rim as outline. 4b still can't
+    read it on any crop tried (7-1.., ト=1.., also turned level or cleaned up): a reading that
+    mixes kana with Latin letters or digits is left as drawn and counted.
+  - A see-through bubble over dark and light art was erased with one flat colour, leaving a
+    lighter patch where the art behind is darker. A flat fill now follows the paper round the
+    letters, smoothly.
 
 - Lettering made one long line, or sat away from the original's place, in a few items. fitText now
   breaks lines to about the original text's shape, as even as they go, and the lines share one
@@ -197,6 +229,7 @@ transliterated (Rea, Shichimi; a names list in settings fixes those: `run.mjs --
     node tools/quality/run.mjs --no-models                  (without the helper models, the old path)
     node tools/quality/run.mjs --terms=terms.txt            (with a names list)
     node tools/quality/run.mjs --concurrency=2              (reading ahead, two pages at a time)
+    node tools/quality/run.mjs --pages=<folder> --dump=<folder>   (other pages; every image sent to the model)
     python tools/quality/sheet.py E36P03                    (per-item sheet for checking)
     python tools/quality/fits.py                            (centring and size of every item)
 

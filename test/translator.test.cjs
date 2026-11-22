@@ -800,7 +800,46 @@ test('a repaint that smooths detailed art into a smear does not hold', () => {
 });
 
 test('drawn-out roars are known sound effects', () => {
-  assert.equal(t.knownSFX('グオオオン'), 'GROOOAR');
-  assert.equal(t.knownSFX('グアアアア'), 'GRAAAH');
-  assert.equal(t.knownSFX('フリフリ'), 'WIGGLE WIGGLE');
+  assert.equal(t.knownSFX('グオオオン'), 'GWOOOOM');
+  assert.equal(t.knownSFX('ガオオオン'), 'GRAOOOOM');
+  assert.equal(t.knownSFX('ドドドン'), 'BOOM');
+  assert.equal(t.knownSFX('グアアアア'), 'GRAAAAAH');
+  assert.equal(t.knownSFX('フリフリ'), 'WAG WAG');
+});
+
+test('a large sound effect read several times keeps the reading most like the others', () => {
+  assert.equal(t.editDistance('ガオオオ', 'ガオオオン'), 1);
+  assert.equal(t.editDistance('', 'ガオ'), 2);
+  assert.equal(t.consensusReading(['グアアアア', 'ガオオオ', 'ガオオオン']), 'ガオオオン');
+  assert.equal(t.consensusReading(['ドオン', '', 'ドオン']), 'ドオン');
+  const job = t.largeSFXJob({source: 'Japanese'}, {mime: 'image/jpeg', data: ''}, true);
+  assert.ok(job.predict > 0 && /オ is easily mistaken for ア/.test(job.system));
+  assert.equal(t.chatPayload('m', job).options.num_predict, job.predict);
+});
+
+test('vertical columns in a bubble are given right to left, each with its own top', () => {
+  const img = page(500, 500, [120, 120, 120]);
+  ellipse(img, 250, 250, 150, 200, [255, 255, 255], [0, 0, 0]);
+  // Three columns ending level; the right two are shorter and start lower than the left one.
+  glyphs(img, 276, 132, 1, 4); glyphs(img, 252, 132, 1, 4); glyphs(img, 228, 110, 1, 5);
+  const [b] = t.findBubbleText(img.data, img.width, img.height);
+  assert.ok(b && b.columns && b.columns.length === 3, JSON.stringify(b?.columns));
+  assert.deepEqual(b.columns.map(c => c.x), [228, 252, 276]);
+  assert.ok(b.columns[0].y < b.columns[2].y - 15);
+});
+
+test('black letters in a white rim on dark art are lettered black with a light outline', () => {
+  const img = page(160, 120, [30, 50, 30]);
+  // Three glyphs (a box with a bar), each stroke 2 px of black inside a 2 px white rim.
+  const core = (x, y) => x >= 0 && y >= 0 && x < 22 && y < 28 && (x < 2 || x > 19 || y < 2 || y > 25 || (y > 12 && y < 15));
+  for (const gx of [30, 64, 98]) for (let y = -2; y < 30; y++) for (let x = -2; x < 24; x++) {
+    let rim = false;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (core(x + dx, y + dy)) rim = true;
+    if (core(x, y)) set(img, gx + x, 46 + y, [5, 5, 5]); else if (rim) set(img, gx + x, 46 + y, [235, 235, 235]);
+  }
+  const plan = t.planLooseErase(img, {x: 26, y: 42, width: 98, height: 36});
+  assert.ok(plan, 'planned');
+  const lum = c => parseInt(c.slice(1, 3), 16);
+  assert.ok(lum(plan.color) < 40, plan.color);
+  assert.ok(plan.outline && lum(plan.outline) > 150, String(plan.outline));
 });

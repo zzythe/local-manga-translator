@@ -1,5 +1,6 @@
 // End-to-end test of dist/chrome in Microsoft Edge against the local Ollama.
 //   node tools/e2e.mjs            (Ollama must be running with a qwen3-vl model)
+// Edge runs headless, nothing on screen; --headed shows its window.
 // Screenshots go to tools/e2e-out/.
 import {chromium} from 'playwright-core';
 import {mkdtempSync, mkdirSync, readFileSync} from 'node:fs';
@@ -63,7 +64,7 @@ async function inControl(page, fn) {
 }
 
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
-  channel: 'msedge', headless: false, viewport: {width: 1280, height: 900},
+  channel: 'msedge', headless: !process.argv.includes('--headed'), viewport: {width: 1280, height: 900},
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
 });
 let [sw] = ctx.serviceWorkers();

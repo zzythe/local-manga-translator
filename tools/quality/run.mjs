@@ -8,6 +8,7 @@
 //       [--concurrency=2]   after the first page, translate this many at once, as when reading ahead
 //       [--no-stream]       translate without streaming the answer (no bubbles shown early)
 //       [--pages=<folder>]  pages from another folder (pages that may not be kept in the repository)
+//       [--dump=<folder>]   save every image sent to the model there (<page>-<call>.jpg), to see what it read
 import {chromium} from 'playwright-core';
 import {readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync} from 'node:fs';
 import {join, dirname, extname, resolve} from 'node:path';
@@ -25,6 +26,8 @@ const pagesDir = resolve(here, option('pages', 'pages'));
 const terms = option('terms') ? readFileSync(join(here, option('terms')), 'utf8') : '';
 const unload = args.includes('--unload'), pause = Number(option('pause', 0)), concurrency = Number(option('concurrency', 1));
 const stream = !args.includes('--no-stream');
+const dumpDir = option('dump') ? resolve(here, option('dump')) : '';
+if (dumpDir) mkdirSync(dumpDir, {recursive: true});
 mkdirSync(outDir, {recursive: true});
 
 // The built userscript, made to hand its internals to the page instead of starting its UI.
@@ -88,6 +91,8 @@ const next = () => {
 await page.exposeFunction('askOllama', async (job, name, streamId) => {
   const calls = callsOf.get(name);
   const done = await turn(pages.indexOf(name));
+  if (dumpDir) (job.messages[1].images || []).forEach((data, k) =>
+    writeFileSync(join(dumpDir, `${name.replace(/\.[^.]+$/, '')}-${calls.length + 1}${k ? '-' + k : ''}.jpg`), Buffer.from(data, 'base64')));
   const started = Date.now();
   let body;
   try {

@@ -364,6 +364,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     case 'page-get': case 'page-put':
       if (!sender.tab?.id) { reply(null); return false; }
       return answer(toDetector({...message, tab: sender.tab.id}));
+    // A tab with pages here (Firefox: this page unloads after 30 s without events).
+    case 'keep': reply({ok: true}); return false;
     // The translator turned on for a site, or off.
     case 'wanted': return answer(wanted(sender.tab?.url));
     case 'site-on': case 'site-off': return answer(siteSession(sender.tab?.url, message.type === 'site-on'));

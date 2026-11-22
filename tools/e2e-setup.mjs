@@ -7,7 +7,7 @@ import {join} from 'node:path';
 const ext = join(process.cwd(), 'dist/chrome'), out = join(process.cwd(), 'tools/e2e-out');
 mkdirSync(out, {recursive: true});
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
-  channel: 'msedge', headless: false, viewport: {width: 1100, height: 900},
+  channel: 'msedge', headless: !process.argv.includes('--headed'), viewport: {width: 1100, height: 900},
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
 });
 let [sw] = ctx.serviceWorkers(); if (!sw) sw = await ctx.waitForEvent('serviceworker');
