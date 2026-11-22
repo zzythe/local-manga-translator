@@ -2843,7 +2843,11 @@
     async function chooseModel() {
       const names = await fillModels();
       if (!names.length) throw new Error(`No vision model installed. Run: ollama pull ${DEFAULT_MODEL}`);
-      if (!names.includes(settings.model)) { settings.model = names.find(n => /qwen3-vl/.test(n)) || names[0]; save(); $('model').value = settings.model; }
+      // Nothing chosen yet: the recommended model if it is there, not whichever was downloaded last.
+      if (!names.includes(settings.model)) {
+        settings.model = names.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : names.find(n => /qwen3-vl/.test(n)) || names[0];
+        save(); $('model').value = settings.model;
+      }
     }
 
     /* ---------- Ollama ---------- */
