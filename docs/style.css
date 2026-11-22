@@ -20,8 +20,54 @@ nav { display: flex; align-items: center; justify-content: space-between; paddin
 .brand img { width: 36px; height: 36px; }
 nav .links a { margin-left: 18px; color: var(--ink); text-decoration: none; font-weight: 600; }
 
-.hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; padding: 36px 0 56px; }
-.hero p.lede { font-size: 20px; color: var(--muted); margin: 0 0 24px; max-width: 34em; }
+.hero-band {
+  position: relative; overflow: hidden; border-bottom: 3px solid var(--ink);
+  background: radial-gradient(circle at 85% 30%, var(--wash) 0, transparent 60%), var(--paper);
+}
+.hero-band::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(229, 48, 107, .22) 1.6px, transparent 2px); background-size: 12px 12px;
+  -webkit-mask-image: linear-gradient(115deg, transparent 35%, #000 95%); mask-image: linear-gradient(115deg, transparent 35%, #000 95%);
+}
+.hero-band .wrap { position: relative; }
+.hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: center; padding: 28px 0 64px; }
+.hero .logo { display: block; width: 132px; height: 132px; margin: 0 0 18px -6px; transform: rotate(-6deg); filter: drop-shadow(5px 6px 0 rgba(28, 21, 38, .85)); }
+.hero h1 { font-size: clamp(40px, 6.4vw, 64px); }
+.hero p.lede { font-size: 21px; color: var(--muted); margin: 0 0 24px; max-width: 26em; }
+
+/* Drawn panel: three manga panels whose lettering flips between Japanese and English. */
+.demo { margin: 0; }
+.frame {
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1.15fr 1fr; gap: 10px; aspect-ratio: 5 / 6; max-width: 440px; margin-left: auto;
+  padding: 10px; background: var(--paper); border: 3px solid var(--ink); border-radius: 6px; box-shadow: 8px 9px 0 rgba(28, 21, 38, .85); transform: rotate(1.5deg);
+}
+.panel { position: relative; overflow: hidden; border: 2.5px solid var(--ink); display: grid; place-items: center; background: #fff; }
+.panel.wide { grid-column: 1 / -1; }
+.panel.lines { background: repeating-conic-gradient(from 0deg at 50% 55%, #fff 0 4deg, rgba(28, 21, 38, .12) 4deg 5deg); }
+.panel.tone { background: radial-gradient(rgba(28, 21, 38, .28) 1.3px, transparent 1.6px) 0 0 / 7px 7px, #fff; }
+.panel.dark { background: radial-gradient(circle at 50% 50%, var(--accent) 0, var(--accent-ink) 70%); }
+.speech {
+  position: relative; display: grid; place-items: center; background: #fff; border: 2.5px solid var(--ink); border-radius: 50%;
+  font: 700 24px/1.15 "Comic Neue", "Comic Sans MS", sans-serif; text-align: center;
+}
+.speech > span { grid-area: 1 / 1; }
+.speech::after {
+  content: ""; position: absolute; width: 22px; height: 22px; background: #fff; border: solid var(--ink); border-width: 0 2.5px 2.5px 0;
+  bottom: -9px; left: 28%; transform: rotate(35deg) skew(12deg, 12deg);
+}
+.speech.one { width: 62%; aspect-ratio: 1.45; }
+.speech.one .ja { font-family: system-ui, sans-serif; font-weight: 700; font-size: 20px; writing-mode: vertical-rl; line-height: 1.5; }
+.speech.two { width: 78%; aspect-ratio: 1.6; font-size: 22px; }
+.speech.two .ja { font-family: system-ui, sans-serif; font-weight: 700; font-size: 19px; }
+.sfx { display: grid; font: 700 34px/1 "Comic Neue", "Comic Sans MS", sans-serif; color: #fff; transform: rotate(-10deg); text-align: center; }
+.sfx > span { grid-area: 1 / 1; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); }
+.sfx .ja { font-family: system-ui, sans-serif; font-weight: 900; font-size: 36px; }
+.sfx .en { font-size: 30px; }
+.frame .ja { animation: show-ja 6s infinite; }
+.frame .en { animation: show-en 6s infinite; }
+@keyframes show-ja { 0%, 42% { opacity: 1; } 50%, 92% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes show-en { 0%, 42% { opacity: 0; } 50%, 92% { opacity: 1; } 100% { opacity: 0; } }
+.page-section { padding-top: 64px; }
 .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
 .button {
   display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 10px 22px;
@@ -60,9 +106,15 @@ footer { padding: 36px 0 56px; color: var(--muted); font-size: 15px; border-top:
 .prose h2 { font-size: 26px; margin-top: 32px; }
 
 @media (max-width: 820px) {
-  .hero { grid-template-columns: 1fr; padding-top: 12px; }
+  .hero { grid-template-columns: 1fr; padding-top: 12px; gap: 36px; }
+  .hero .logo { width: 96px; height: 96px; }
   .compare { margin: 0 auto; max-height: none; width: 100%; }
+  .frame { margin: 0 auto; width: calc(100% - 10px); }
+  .hero-band::before { -webkit-mask-image: linear-gradient(180deg, transparent 40%, #000 100%); mask-image: linear-gradient(180deg, transparent 40%, #000 100%); }
   .features, .steps, .pricing { grid-template-columns: 1fr; }
   nav .links a:not(:last-child) { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .frame .ja { animation: none; opacity: 0; } .frame .en { animation: none; }
+}

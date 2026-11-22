@@ -13,33 +13,48 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="wrap">
-    <nav>
-      <a class="brand" href="./"><img src="img/icon.png" alt="">Local Manga Translator</a>
-      <div class="links"><a href="#install" id="nav-install" hidden>Install</a><a href="#faq">FAQ</a><a href="https://github.com/zzythe/local-manga-translator">GitHub</a></div>
-    </nav>
-
-    <header class="hero">
-      <div>
-        <h1>Local Manga Translator</h1>
-        <p class="lede">An open source browser extension that translates manga, manhwa and manhua in place, offline.</p>
-        <div class="ctas" id="install">
-          <a class="button primary" id="get-chrome" hidden>Chrome</a>
-          <a class="button" id="get-edge" hidden>Edge</a>
-          <a class="button" id="get-firefox" hidden>Firefox</a>
+  <header class="hero-band">
+    <div class="wrap">
+      <nav>
+        <a class="brand" href="./"><img src="img/icon.png" alt="">Local Manga Translator</a>
+        <div class="links"><a href="#install" id="nav-install" hidden>Install</a><a href="#faq">FAQ</a><a href="https://github.com/zzythe/local-manga-translator">GitHub</a></div>
+      </nav>
+      <div class="hero">
+        <div class="intro">
+          <img class="logo" src="img/icon.png" alt="" width="132" height="132">
+          <h1>Local Manga Translator</h1>
+          <p class="lede">An open source browser extension that translates manga, manhwa and manhua in place, offline.</p>
+          <div class="ctas" id="install">
+            <a class="button primary" id="get-chrome" hidden>Chrome</a>
+            <a class="button" id="get-edge" hidden>Edge</a>
+            <a class="button" id="get-firefox" hidden>Firefox</a>
+          </div>
         </div>
+        <figure class="demo" aria-label="A comic panel whose speech bubbles switch between Japanese and English">
+          <div class="frame" aria-hidden="true">
+            <div class="panel wide lines">
+              <div class="speech one"><span class="ja" lang="ja">なんで<br>ここに<br>いるの？</span><span class="en">Why are<br>you here?</span></div>
+            </div>
+            <div class="panel tone">
+              <div class="speech two"><span class="ja" lang="ja">えっ…</span><span class="en">Huh…</span></div>
+            </div>
+            <div class="panel dark">
+              <div class="sfx"><span class="ja" lang="ja">ドキッ</span><span class="en">BA-DUMP</span></div>
+            </div>
+          </div>
+          <div class="compare" id="compare" aria-label="Drag to compare the original and the translation" hidden>
+            <img src="img/before.jpg" alt="A comic page in Japanese">
+            <img class="after" src="img/after.jpg" alt="The same page in English">
+            <span class="tag l">Original</span><span class="tag r">Translated</span>
+            <div class="handle"></div>
+            <input type="range" min="0" max="100" value="50" aria-label="Compare original and translation">
+          </div>
+        </figure>
       </div>
-      <div class="compare" id="compare" aria-label="Drag to compare the original and the translation">
-        <img src="img/before.jpg" alt="A comic page in Japanese">
-        <img class="after" src="img/after.jpg" alt="The same page in English">
-        <span class="tag l">Original</span><span class="tag r">Translated</span>
-        <div class="handle"></div>
-        <input type="range" min="0" max="100" value="50" aria-label="Compare original and translation">
-      </div>
-    </header>
-  </div>
+    </div>
+  </header>
 
-  <section>
+  <section class="page-section">
     <div class="wrap features">
       <div class="card"><h3>Runs locally</h3><p>Pages are read by a vision model in Ollama on your machine. Nothing is uploaded and there is no account.</p></div>
       <div class="card"><h3>Works on most readers</h3><p>Long strips, page-by-page readers and galleries. Turn it on for a tab, or always for a site.</p></div>
@@ -75,8 +90,12 @@
       link.href = url; link.hidden = false;
       document.getElementById('nav-install').hidden = false;
     }
+    // Real before/after pages replace the drawn panel once both images load.
     const compare = document.getElementById('compare');
-    compare.querySelectorAll('img').forEach(img => img.addEventListener('error', () => { compare.hidden = true; }));
+    const imgs = [...compare.querySelectorAll('img')];
+    Promise.all(imgs.map(img => img.decode())).then(() => {
+      compare.hidden = false; document.querySelector('.demo .frame').hidden = true;
+    }, () => {});
     compare.querySelector('input').addEventListener('input', e => compare.style.setProperty('--split', e.target.value + '%'));
   </script>
 </body>
