@@ -15,13 +15,13 @@ Chrome: **Tools**. Edge: **Productivity**. Firefox: **Language Support**.
 
 Local Manga Translator translates manga, manhwa and manhua in place. The text is read and translated by a vision model running in Ollama on your own computer, so pages never leave it.
 
-Open a chapter and click the toolbar button, right-click the page, or press Alt+Shift+T. Pages are translated as you scroll, a few ahead of where you are. The original text is removed from each bubble and the translation is set to fit. Click the mark on a page to compare it with the original.
+Open a chapter and click the toolbar button, right-click the page, or press Alt+Shift+T. Pages are translated as you scroll, a few ahead of where you are. The original text is removed from each bubble and the translation is set to fit. Click the mark on a page to compare it with the original, or save the translated page as an image. Translated pages are kept in memory only and never saved unless you save one.
 
 It works on long strips, page-by-page readers and galleries, and translates captions and sound effects as well as speech bubbles. Source languages: Japanese, Korean, Chinese, English, Spanish, Portuguese. Target languages: English and 14 others.
 
 On first install a setup page walks you through installing Ollama and downloading a model (1.9 to 6.2 GB).
 
-30 new pages a day are free, and images from long strips count as half a page. Pro removes the limit for a one-time $6.99.
+30 new pages a day are free. A page counts when it first appears on your screen, not when it's translated ahead, and images from long strips count as half a page. Pro removes the limit for a one-time $6.99.
 
 Requirements: Windows 10 or later, macOS or Linux. A GPU with 6 GB of VRAM or more is recommended; on the CPU a page can take a minute.
 
@@ -36,12 +36,13 @@ Translates the text in comic images on web pages the user chooses, using an AI m
 
 | Permission | Justification |
 |---|---|
-| Host permission `<all_urls>` | Comic readers load page images from many different image servers. The extension downloads the image the user asked it to translate (with the page as referrer, which many sites require) and replaces it on the page with the translated version. A small content script checks whether the user turned the translator on for the current site; it does nothing otherwise. |
+| Host permission `<all_urls>` | Comic readers load page images from many different image servers. The extension downloads the image the user asked it to translate (with the page as referrer, which many sites require) and replaces it on the page with the translated version. On readers with one page per address, it also downloads the next page of the same site to translate its image ahead. A small content script checks whether the user turned the translator on for the current site; it does nothing otherwise. |
 | `scripting` | Loads the translator into the current tab when the user clicks the toolbar button, uses the context menu or presses the shortcut. |
-| `storage` | Saves the user's language and model settings, sites set to translate automatically, names the user entered for each site, the free plan's daily page count, and Pro status. |
+| `storage` | Saves the user's language and model settings, sites set to translate automatically, names the user entered for each site, the free plan's daily page count, and Pro status. Session storage (memory only) holds the sites the translator is turned on for until the browser closes. |
+| `alarms` | Clears the free plan's list of pages counted the day before, also on days nothing is translated. |
 | `contextMenus` | Adds "Translate this page" to the right-click menu. |
 | `declarativeNetRequestWithHostAccess` | Sets the referrer on the extension's own image downloads (many comic sites refuse images without it) and lets the extension's background requests reach the user's local Ollama server, which otherwise rejects browser extensions. The rules apply only to requests made by the extension itself, never to web pages. |
-| `offscreen` | Runs two small local models (one finds speech bubbles, one repaints artwork under sound effects) in an offscreen page shared by all tabs. The background service worker can't start the threads they use. |
+| `offscreen` | Runs two small local models (one finds speech bubbles, one repaints artwork under sound effects) in an offscreen page shared by all tabs. The background service worker can't start the threads they use. The same page keeps each tab's translated pages in memory, so going back or reloading shows them at once. |
 | Remote code | No. All code is in the package. The two models' weights (72 MB, no code) are downloaded once from Hugging Face. |
 
 ## Data usage (Chrome privacy tab)

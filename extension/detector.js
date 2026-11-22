@@ -80,6 +80,7 @@ const fromBase64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 // {type: 'prepare'} → {ready}; {type: 'stats'} → {ready, runs, repaints, threads};
 // {type: 'status'} → {ready, loading, loaded, total}: the download so far, in bytes.
 export async function handle(message) {
+  if (message.type.startsWith('page-')) return pageStore(message);
   if (message.type === 'status') {
     const all = Object.values(state);
     return {ready: all.every(m => m.session), loading: all.some(m => m.loading),
@@ -102,6 +103,40 @@ export async function handle(message) {
     const filled = await inpaintImage(ort, session, await pixels(message.image), fromBase64(message.mask), message.width, message.height);
     return {pixels: toBase64(filled)};
   }
+  return null;
+}
+
+// Finished pages, in memory only, for each tab (see background.js): {tab, key} → {data (a data
+// URL, or '' for a page with nothing to translate), note}. The oldest go first past 300 MB.
+// {type: 'page-put', tab, key, data, note}; {type: 'page-get', tab, key} → {data, note} or null;
+// {type: 'page-drop', tab}; {type: 'page-count', tab} → {count}.
+const pages = new Map();
+let pageBytes = 0;
+function pageStore(message) {
+  const id = `${message.tab}\u0000${message.key}`;
+  if (message.type === 'page-get') {
+    const entry = pages.get(id);
+    if (!entry) return null;
+    pages.delete(id); pages.set(id, entry);
+    return {data: entry.data, note: entry.note};
+  }
+  if (message.type === 'page-put') {
+    if (typeof message.data !== 'string' || typeof message.key !== 'string') return null;
+    const old = pages.get(id);
+    if (old) { pageBytes -= old.data.length; pages.delete(id); }
+    pages.set(id, {tab: message.tab, data: message.data, note: String(message.note || '')});
+    pageBytes += message.data.length;
+    for (const [key, entry] of pages) {
+      if (pageBytes <= 300e6) break;
+      pages.delete(key); pageBytes -= entry.data.length;
+    }
+    return {ok: true};
+  }
+  if (message.type === 'page-drop') {
+    for (const [key, entry] of pages) if (entry.tab === message.tab) { pages.delete(key); pageBytes -= entry.data.length; }
+    return {ok: true};
+  }
+  if (message.type === 'page-count') return {count: [...pages.values()].filter(e => e.tab === message.tab).length};
   return null;
 }
 

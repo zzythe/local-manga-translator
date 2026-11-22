@@ -165,10 +165,31 @@ async function proStatus(force) {
   }
 }
 
-async function plan() {
+// Today's usage: the page count, and which pages were counted (salted hashes of their image
+// addresses, so a page shown again is free). A new day starts with nothing kept from the last,
+// and a new salt.
+async function usageToday() {
   const {usage} = await chrome.storage.local.get('usage');
-  const used = usage?.day === today() ? usage.count : 0;
-  return {pro: await proStatus(false), used, limit: CONFIG.freePagesPerDay};
+  if (usage?.day === today() && typeof usage.salt === 'string' && Array.isArray(usage.seen)) return usage;
+  const salt = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  // (A count from earlier today, kept by an older version without the salt, stays.)
+  const fresh = {day: today(), count: usage?.day === today() ? usage.count || 0 : 0, seen: [], salt};
+  await chrome.storage.local.set({usage: fresh});
+  return fresh;
+}
+async function pageId(usage, url) {
+  if (typeof url !== 'string' || !url) return '';
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(usage.salt + url.slice(0, 4000)));
+  return [...new Uint8Array(digest).slice(0, 12)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+// Yesterday's list is cleared even on days nothing is translated.
+chrome.runtime.onStartup.addListener(() => { usageToday(); });
+chrome.alarms?.create('usage-day', {periodInMinutes: 30});
+chrome.alarms?.onAlarm.addListener(alarm => { if (alarm.name === 'usage-day') usageToday(); });
+
+async function plan() {
+  const usage = await usageToday();
+  return {pro: await proStatus(false), used: usage.count, limit: CONFIG.freePagesPerDay};
 }
 
 // What one translated image costs: a page, or part of one for an image of a long strip. One very
@@ -179,21 +200,19 @@ function pageCost({strip, aspect} = {}) {
   return Math.min(100, pages * CONFIG.stripPageWeight);
 }
 
-// A page translated again the same day (after changing a setting, or in another tab) is free.
+// A page counts once it is shown. Shown again the same day (after a reload, a changed setting, or
+// in another tab) it is free.
 async function recordPage(image) {
-  const {usage} = await chrome.storage.local.get('usage');
-  const day = today(), fresh = usage?.day === day;
-  const seen = fresh && Array.isArray(usage.seen) ? usage.seen : [];
-  const id = typeof image?.id === 'string' ? image.id.slice(0, 600) : '';
-  if (id && seen.includes(id)) return plan();
-  const count = Math.round(((fresh ? usage.count : 0) + pageCost(image)) * 100) / 100;
-  await chrome.storage.local.set({usage: {day, count, seen: id ? [...seen, id].slice(-2000) : seen},
+  const usage = await usageToday(), id = await pageId(usage, image?.url);
+  if (id && usage.seen.includes(id)) return plan();
+  const count = Math.round((usage.count + pageCost(image)) * 100) / 100;
+  await chrome.storage.local.set({usage: {...usage, count, seen: id ? [...usage.seen, id].slice(-2000) : usage.seen},
     lifetime: ((await chrome.storage.local.get('lifetime')).lifetime || 0) + 1});
   return plan();
 }
-async function wasCounted(id) {
-  const {usage} = await chrome.storage.local.get('usage');
-  return {counted: typeof id === 'string' && usage?.day === today() && Array.isArray(usage.seen) && usage.seen.includes(id)};
+async function wasCounted(url) {
+  const usage = await usageToday(), id = await pageId(usage, url);
+  return {counted: !!id && usage.seen.includes(id)};
 }
 
 // Straight to the Pro plan's checkout when it exists; otherwise ExtensionPay's plan page.
@@ -275,11 +294,57 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
  * service worker can't start the threads it uses; Firefox in this background page.
  * ---------------------------------------------------------------------------------------- */
 
+/* ------------------------------------------------------------------------------------------
+ * Finished pages are kept in memory only, in the same document as the helper models (Chrome)
+ * or this background page (Firefox), for the tab they were translated in: going back, reloading
+ * or moving on to a page translated ahead shows them at once. Nothing is written to disk, and
+ * the site can't read them. A tab's pages are dropped when it closes.
+ * ---------------------------------------------------------------------------------------- */
+
+chrome.tabs.onRemoved.addListener(async tab => {
+  if (chrome.offscreen && !(await chrome.offscreen.hasDocument())) return;
+  toDetector({type: 'page-drop', tab}).catch(() => {});
+});
+
+/* ------------------------------------------------------------------------------------------
+ * Where the translator is on. Turned on for a site, it stays on there (its other pages,
+ * subdomains and tabs) until the browser closes or the translator is closed. This is kept in
+ * session storage, which is never written to disk. "Translate <site> automatically" keeps it on.
+ * ---------------------------------------------------------------------------------------- */
+
+// The site of a host name: its last two labels, or three under a country's own second level
+// (example.co.uk). An IP address or a one-label name is its own site.
+function siteOf(host) {
+  host = String(host || '').toLowerCase().replace(/\.$/, '');
+  if (!host.includes('.') || /^[\d.]+$/.test(host) || host.includes(':')) return host;
+  const labels = host.split('.');
+  const take = labels.length >= 3 && labels.at(-1).length === 2 && /^(co|com|net|org|ac|gov|edu|ne|or|go)$/.test(labels.at(-2)) ? 3 : 2;
+  return labels.slice(-take).join('.');
+}
+const hostOf = url => { try { return new URL(url).hostname; } catch { return ''; } };
+
+async function wanted(url) {
+  const site = siteOf(hostOf(url));
+  if (!site) return {on: false};
+  const {on} = await chrome.storage.session.get('on').catch(() => ({}));
+  if (on?.[site]) return {on: true, site};
+  const {settings} = await chrome.storage.local.get('settings');
+  return {on: (settings?.sites || []).some(h => siteOf(h) === site), site};
+}
+async function siteSession(url, turnOn) {
+  const site = siteOf(hostOf(url));
+  if (!site) return {ok: false};
+  const {on = {}} = await chrome.storage.session.get('on').catch(() => ({}));
+  if (turnOn) on[site] = true; else delete on[site];
+  await chrome.storage.session.set({on}).catch(() => {});
+  return {ok: true, site};
+}
+
 let detectorPage = null;
 function toDetector(message) {
   if (!chrome.offscreen) return import('./detector.js').then(m => m.handle(message));
   detectorPage ??= chrome.offscreen.hasDocument().then(open => open || chrome.offscreen.createDocument({
-    url: 'detector.html', reasons: ['WORKERS'], justification: 'Runs the models that find speech bubbles and repaint artwork under sound effects.'
+    url: 'detector.html', reasons: ['WORKERS'], justification: 'Runs the models that find speech bubbles and repaint artwork under sound effects, and keeps translated pages in memory.'
   })).finally(() => { detectorPage = null; });
   return detectorPage.then(() => chrome.runtime.sendMessage({...message, target: 'detector'}));
 }
@@ -294,7 +359,14 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     case 'plan': return answer(plan());
     // The sample page (one of the extension's own pages) is free.
     case 'used': return answer(sender.url?.startsWith(chrome.runtime.getURL('')) ? plan() : recordPage(message.image));
-    case 'counted': return answer(wasCounted(message.id));
+    case 'counted': return answer(wasCounted(message.url));
+    // Finished pages, kept in memory for the tab (see above).
+    case 'page-get': case 'page-put':
+      if (!sender.tab?.id) { reply(null); return false; }
+      return answer(toDetector({...message, tab: sender.tab.id}));
+    // The translator turned on for a site, or off.
+    case 'wanted': return answer(wanted(sender.tab?.url));
+    case 'site-on': case 'site-off': return answer(siteSession(sender.tab?.url, message.type === 'site-on'));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));
     case 'buy': return answer(openCheckout());
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;

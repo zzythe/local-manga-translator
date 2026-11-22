@@ -3231,6 +3231,16 @@
   // browser's language.
   const DEFAULTS = {source: 'Auto-detect', target: '', model: '', uppercase: true, sites: [], font: 'auto', names: {}, more: false};
   const host = location.hostname;
+  // The site of a host name: its last two labels, or three under a country's own second level
+  // (example.co.uk). The same as in background.js.
+  function siteOf(name) {
+    name = String(name || '').toLowerCase().replace(/\.$/, '');
+    if (!name.includes('.') || /^[\d.]+$/.test(name) || name.includes(':')) return name;
+    const labels = name.split('.');
+    const take = labels.length >= 3 && labels.at(-1).length === 2 && /^(co|com|net|org|ac|gov|edu|ne|or|go)$/.test(labels.at(-2)) ? 3 : 2;
+    return labels.slice(-take).join('.');
+  }
+  const site = siteOf(host);
 
   // Settings storage. Extension storage is asynchronous, so a copy is loaded before anything starts.
   let storedSettings = null;
@@ -3284,64 +3294,50 @@
     return promise;
   }
 
-  // Finished pages, kept in the site's IndexedDB for this tab's visit. sessionStorage lives as
-  // long as the tab, across reloads and links within the site, so its id marks the visit;
-  // entries from visits that ended (closed tabs) are deleted after a while.
+  // Finished pages, kept in memory only: in this document, and (extension) by the extension for
+  // this tab, so a reload, going back or a page translated ahead shows at once. Never written to
+  // disk, and never where the site's own scripts could read them.
   const pageCache = (() => {
-    const SESSION_KEY = 'manga-translator-session', STALE = 2 * 3600e3;
-    // Created on first use, so sites where the translator is never turned on are left untouched.
-    let session = '';
-    const visit = () => {
-      if (session) return session;
-      try {
-        session = sessionStorage.getItem(SESSION_KEY) || '';
-        if (!session) { session = Date.now().toString(36) + Math.random().toString(36).slice(2); sessionStorage.setItem(SESSION_KEY, session); }
-      } catch { session = 'page-' + Math.random().toString(36).slice(2); }
-      return session;
-    };
-    let opening = null;
-    const open = () => opening ||= new Promise(resolve => {
-      try {
-        const req = indexedDB.open('manga-translator', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('pages');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = req.onblocked = () => resolve(null);
-      } catch { resolve(null); }
-    });
-    // One transaction; resolves with the request's result, or null when storage is unavailable.
-    const run = async (mode, fn) => {
-      const db = await open();
-      if (!db) return null;
-      return new Promise(resolve => {
-        try {
-          const tx = db.transaction('pages', mode), req = fn(tx.objectStore('pages'));
-          tx.oncomplete = () => resolve(req ? req.result ?? null : null);
-          tx.onerror = tx.onabort = () => resolve(null);
-        } catch { resolve(null); }
-      });
-    };
+    const local = new Map(); // key -> {blob, note}
     const hash = text => {
       let h = 2166136261;
       for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
       return '#' + text.length + '-' + (h >>> 0).toString(36);
     };
+    const keep = (key, value) => {
+      local.delete(key); local.set(key, value);
+      while (local.size > 30) local.delete(local.keys().next().value);
+    };
+    const dataUrl = blob => new Promise((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
+    });
     return {
-      hash,
-      key: (s, url) => [visit(), s.source, s.target, s.model, s.uppercase ? 1 : 0, s.font, s.terms ? hash(s.terms) : '',
-        url.length > 400 ? hash(url) : url].join('|'),
-      get: key => run('readonly', store => store.get(key)),
-      put: (key, value) => run('readwrite', store => { store.put({...value, session, time: Date.now()}, key); }),
-      purge: () => run('readwrite', store => {
-        const req = store.openCursor();
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (!cursor) return;
-          if (cursor.value.session !== visit() && Date.now() - cursor.value.time > STALE) cursor.delete();
-          cursor.continue();
-        };
-      })
+      key: (s, url) => [s.source, s.target, s.model, s.uppercase ? 1 : 0, s.font, s.terms ? hash(s.terms) : '', url.length > 400 ? hash(url) : url].join('|'),
+      async get(key) {
+        if (local.has(key)) return local.get(key);
+        if (!EXTENSION) return null;
+        const found = await background({type: 'page-get', key}).catch(() => null);
+        if (typeof found?.data !== 'string') return null;
+        const m = /^data:([^;,]*);base64,/.exec(found.data);
+        const value = {blob: m ? base64ToBlob(found.data.slice(m[0].length), m[1]) : null, note: found.note || ''};
+        keep(key, value);
+        return value;
+      },
+      has: key => local.has(key),
+      put(key, value) {
+        keep(key, value);
+        if (!EXTENSION) return;
+        (value.blob ? dataUrl(value.blob) : Promise.resolve(''))
+          .then(data => background({type: 'page-put', key, data, note: value.note || ''})).catch(() => {});
+      }
     };
   })();
+  // Older versions kept finished pages in the site's IndexedDB and marked the tab in its
+  // sessionStorage: removed wherever the translator runs.
+  function forgetOldStore() {
+    try { indexedDB.deleteDatabase('manga-translator'); } catch {}
+    try { sessionStorage.removeItem('manga-translator-session'); } catch {}
+  }
 
   const browserEnv = {
     makeCanvas(width, height) {
@@ -3491,8 +3487,15 @@
     .more-body { display: grid; gap: 10px; padding-top: 10px; }
     .names textarea { margin-top: 6px; }
 
-    /* Per-image markers, top-right corner of each page. */
-    .mark { position: absolute; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+    /* Per-image markers, top-right corner of each page, and the save button beside one. */
+    .markbox { position: absolute; display: flex; flex-direction: row-reverse; align-items: center; gap: 6px;
+      transform: translateX(-100%); pointer-events: auto; }
+    .save { display: none; height: 30px; padding: 0 12px; border-radius: 15px; border: 2px solid var(--ink); background: var(--paper);
+      font: 600 13px/1 system-ui, "Segoe UI", sans-serif; white-space: nowrap; box-shadow: 2px 2px 0 rgba(28, 21, 38, .8); }
+    .save:hover { background: var(--wash); }
+    .markbox:hover .save, .markbox:focus-within .save { display: block; }
+    .markbox .save[hidden] { display: none; }
+    .mark { position: relative; flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
       background: var(--paper); border: 2px solid var(--ink); pointer-events: auto; padding: 0;
       font: 700 14px/1 var(--comic); box-shadow: 2px 2px 0 rgba(28, 21, 38, .8); }
     .mark.working { border-color: var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; cursor: default; box-shadow: none; }
@@ -3540,11 +3543,19 @@
     </div>`;
 
   let controller = null;
-  // Once turned on, the translator stays on in this tab while you move between pages of the
-  // site, until you close it with the X button.
-  const ON_KEY = 'manga-translator-on';
-  const remember = on => { try { if (on) sessionStorage.setItem(ON_KEY, '1'); else sessionStorage.removeItem(ON_KEY); } catch {} };
-  const wanted = () => { try { if (sessionStorage.getItem(ON_KEY) === '1') return true; } catch {} return loadSettings().sites.includes(host); };
+  // Once turned on, the translator stays on for the site (its other pages, subdomains and tabs)
+  // until the browser closes, or until it is closed with the X button. The extension keeps this
+  // in memory; the userscript, and the extension's own sample page, for this tab.
+  const ON_KEY = 'manga-translator-on', WEB = /^https?:$/.test(location.protocol), BY_SITE = EXTENSION && WEB;
+  const remember = on => {
+    if (BY_SITE) { background({type: on ? 'site-on' : 'site-off'}).catch(() => {}); try { sessionStorage.removeItem(ON_KEY); } catch {} return; }
+    try { if (on) sessionStorage.setItem(ON_KEY, '1'); else sessionStorage.removeItem(ON_KEY); } catch {}
+  };
+  const wanted = async () => {
+    if (BY_SITE) return (await background({type: 'wanted'}).catch(() => null))?.on === true;
+    try { if (sessionStorage.getItem(ON_KEY) === '1') return true; } catch {}
+    return loadSettings().sites.includes(host);
+  };
   const openTranslator = () => { if (controller) controller.show(); else controller = start(true); };
   if (EXTENSION) {
     // The toolbar button, right-click menu and shortcut send "open". Listen at once so a message
@@ -3555,9 +3566,10 @@
   } else {
     GM_registerMenuCommand('Translate this page', openTranslator);
   }
-  storeReady.then(() => { if (!controller && wanted()) controller = start(false); });
+  const startIfWanted = async () => { if (!controller && await wanted() && !controller) controller = start(false); };
+  storeReady.then(startIfWanted);
   // Back and forward can restore this page from the browser's memory without running the script.
-  addEventListener('pageshow', event => { if (event.persisted && !controller && wanted()) controller = start(false); });
+  addEventListener('pageshow', event => { if (event.persisted) startIfWanted(); });
 
   function start(fromMenu) {
     const settings = loadSettings();
@@ -3567,21 +3579,20 @@
       const current = loadSettings();
       settings.names = {...current.names};
       if (settings.terms.trim()) settings.names[host] = settings.terms; else delete settings.names[host];
-      const auto = settings.sites.includes(host);
-      settings.sites = current.sites.filter(h => h !== host);
-      if (auto) settings.sites.push(host);
+      const auto = settings.sites.some(h => siteOf(h) === site);
+      settings.sites = current.sites.filter(h => siteOf(h) !== site);
+      if (auto) settings.sites.push(site);
       writeSettings(storedPart(settings));
     };
     // Names moved to this site, and settings no longer used, are stored the new way.
     if (settings.outdated) save();
     remember(true);
-    pageCache.purge();
+    forgetOldStore();
     const pipeline = createPipeline(browserEnv);
     let fontReady = loadLetteringFont(settings.font).catch(() => []);
     const pages = new Map();  // img -> {source, status, url, nodes, showing, error, mark}
     let paused = false, stopped = false, showOriginals = false, ready = false, done = 0;
     const working = new Set(); // imgs being translated
-    const counted = new Set(); // page sources counted against the free plan in this tab
 
     const element = document.createElement('manga-translator');
     const root = element.attachShadow({mode: 'closed'});
@@ -3601,7 +3612,7 @@
     /* ---------- Settings ---------- */
 
     $('source').value = settings.source; $('target').value = settings.target;
-    $('uppercase').checked = settings.uppercase; $('always').checked = settings.sites.includes(host);
+    $('uppercase').checked = settings.uppercase; $('always').checked = settings.sites.some(h => siteOf(h) === site);
     $('terms').value = settings.terms; $('more').open = settings.more;
     // Names, closed: how many there are. Open: how to write them.
     const namesLabel = () => {
@@ -3616,7 +3627,7 @@
       $('font').append(...names.map(n => Object.assign(document.createElement('option'), {value: n, textContent: n})));
       $('font').value = [...$('font').options].some(o => o.value === settings.font) ? settings.font : 'auto';
     });
-    $('always-label').textContent = `Translate ${host} automatically`;
+    $('always-label').textContent = `Translate ${site} automatically`;
     // The extension's own sample page isn't a site anyone would add.
     $('always').closest('label').hidden = !/^https?:$/.test(location.protocol);
     const changed = () => {
@@ -3627,8 +3638,8 @@
       settings.font = $('font').value; settings.terms = $('terms').value;
       if (fontChanged) fontReady = loadLetteringFont(settings.font).catch(() => []);
       if ($('model').value) settings.model = $('model').value;
-      settings.sites = settings.sites.filter(h => h !== host);
-      if ($('always').checked) settings.sites.push(host);
+      settings.sites = settings.sites.filter(h => siteOf(h) !== site);
+      if ($('always').checked) settings.sites.push(site);
       save();
       if (languageChanged) retranslateAll();
     };
@@ -3696,6 +3707,7 @@
     $('pro').onclick = buy;
     $('plan-button').onclick = () => background({type: plan?.pro ? 'manage' : 'buy'}).catch(() => {});
     const unblock = () => {
+      release();
       if (!blocked || (plan && !plan.pro && plan.used >= plan.limit)) return;
       blocked = false;
       for (const page of pages.values()) if (page.status === 'limited') page.status = 'queued';
@@ -3816,11 +3828,14 @@
     function sweep() {
       // Some sites rebuild the document when moving to the next page; put the control back.
       if (!element.isConnected) document.documentElement.append(element);
+      // Pages the site took out of the document.
+      for (const img of [...pages.keys()]) if (!img.isConnected) forget(img, true);
       for (const img of document.images) {
         let page = pages.get(img);
-        // The site loaded a different picture into the same element (single-page readers).
+        // The site loaded a different picture into the same element (single-page readers): the
+        // new one is left as the site set it.
         if (page && page.status !== 'none' && sourceOf(img) !== page.source && sourceOf(img) !== page.url && img.complete) {
-          forget(img); page = null;
+          forget(img, true); page = null;
         }
         if (page || !eligible(img)) continue;
         pages.set(img, {source: sourceOf(img), status: 'queued'});
@@ -3832,19 +3847,68 @@
     const onLoad = event => { if (event.target instanceof HTMLImageElement) sweep(); };
     document.addEventListener('load', onLoad, true);
 
-    function forget(img) {
+    // As it was, unless the site has since put another picture there itself (kept).
+    function forget(img, keepSource = false) {
       const page = pages.get(img);
       if (!page) return;
-      if (page.url) { if (page.showing) restore(img, page); URL.revokeObjectURL(page.url); }
+      if (page.url) { if (page.showing && !keepSource) restore(img, page); URL.revokeObjectURL(page.url); }
       page.mark?.remove();
       removeOverlay(page);
       pages.delete(img);
     }
 
+    /* ---------- Free plan: pages count when they are seen ---------- */
+
+    // A page counts once a good part of it is on screen (with the translation showing) in a tab
+    // that is in front: not when it is translated ahead. Shown again the same day it is free.
+    function inView(img) {
+      if (document.hidden || !img.isConnected) return false;
+      const r = img.getBoundingClientRect();
+      const h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0), w = Math.min(r.right, innerWidth) - Math.max(r.left, 0);
+      return w > 0 && h >= Math.min(r.height * 0.3, innerHeight * 0.5);
+    }
+    function countSeen() {
+      if (!COUNTED || stopped) return;
+      for (const [img, page] of pages) {
+        if (page.counted || page.status !== 'done' || !page.showing || !inView(img)) continue;
+        page.counted = true;
+        const image = {url: page.source, strip: inStrip(img, img.naturalWidth, img.naturalHeight), aspect: img.naturalHeight / Math.max(1, img.naturalWidth)};
+        background({type: 'used', image}).then(p => { if (p) { plan = p; renderPlan(); release(); } }).catch(() => {});
+      }
+    }
+    const onVisible = () => { countSeen(); pump(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    // Free plan: pages translated but not seen yet are held against what is left today, so
+    // reading ahead never goes past it; and free reading ahead is two pages (one for a reader
+    // with a page per address). Pro reads ahead as far as the nearby pages go.
+    const FREE_AHEAD = 2;
+    const free = () => COUNTED && plan && !plan.pro;
+    const unseen = () => [...pages.values()].filter(p => (p.status === 'working' || p.status === 'done') && !p.counted && !p.paid).length + nextPages.pending.size;
+    function mayTranslate(img, page) {
+      if (!free()) return true;
+      const left = plan.limit - plan.used;
+      if (distanceOf(img) === 0) {
+        // On screen: only other pages on screen stand before it.
+        const shown = [...pages].filter(([i, p]) => p !== page && (p.status === 'working' || p.status === 'done') && !p.counted && !p.paid && distanceOf(i) === 0).length;
+        return left - shown > 0;
+      }
+      const ahead = [...pages].filter(([i, p]) => p !== page && (p.status === 'working' || p.status === 'done') && !p.counted && !p.paid && distanceOf(i) > 0).length;
+      return ahead + nextPages.pending.size < FREE_AHEAD && left - unseen() > 0;
+    }
+    // Pages held back from reading ahead get another look once a page is counted or the plan
+    // changes.
+    function release() {
+      for (const page of pages.values()) page.held = false;
+      if (!stopped) setTimeout(pump, 0);
+    }
+
     /* ---------- Work queue: nearest page first ---------- */
 
-    // Pages on screen first (0), then those below, then those above.
+    // Pages on screen first (0), then those below, then those above; pages of other addresses
+    // (read ahead) last.
     function distanceOf(img) {
+      if (!img) return Infinity;
       const r = img.getBoundingClientRect();
       return r.bottom < 0 ? -r.bottom * 1.5 + 1 : r.top > innerHeight ? r.top - innerHeight + 1 : 0;
     }
@@ -3855,6 +3919,7 @@
         const page = pages.get(img);
         if (!page || page.status !== 'queued') continue;
         const distance = distanceOf(img);
+        if (page.held && distance > 0) continue;
         if (distance < bestDistance) { best = img; bestDistance = distance; }
       }
       return best;
@@ -3898,7 +3963,10 @@
       if (starting) return;
       if (paused || stopped || !ready || blocked) return working.size ? undefined : idleStatus();
       const img = nextPage();
-      if (!img) return working.size ? undefined : idleStatus();
+      if (!img) {
+        if (!working.size) { idleStatus(); nextPages.run(); }
+        return;
+      }
       if (working.size) {
         // A second page only when reading ahead.
         if ([...working].some(i => distanceOf(i) === 0)) return;
@@ -3910,78 +3978,77 @@
       pump();
     }
 
+    // Translates one picture: the finished page as a blob (or null: nothing to translate), and
+    // a note. Shared by the pages of this document and those read ahead from the next address.
+    async function translateImage(source, img, isCurrent, onPreview) {
+      const download = fetchBlob(source);
+      download.catch(() => {});
+      await helpersReady();
+      if (!isCurrent()) throw abortError();
+      if (img) say('Translating', 'Downloading the page…');
+      const blob = await download;
+      if (blob.size > MAX_BYTES) throw new Error('The image is larger than 30 MB.');
+      const bitmap = await createImageBitmap(blob), {width, height} = bitmap;
+      try {
+        if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
+        await fontReady;
+        // While the model is still loading, that is what the first page waits for.
+        let last = '';
+        const report = !img ? () => {} : text => { last = text; say('Translating', warming && text === FINDING ? 'Loading the model into memory…' : text); };
+        if (img) warming?.then(() => { if (last === FINDING && isCurrent()) say('Translating', FINDING); });
+        const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
+          report, stopped: () => !isCurrent(), preview: onPreview && (piece => onPreview(piece, width, height))});
+        if (!isCurrent()) throw abortError();
+        if (!result.canvas) return {blob: null, note: result.message};
+        const big = result.canvas.width * result.canvas.height > 8e6;
+        const out = await new Promise(resolve => result.canvas.toBlob(resolve, big ? 'image/jpeg' : 'image/png', 0.93));
+        result.canvas.width = result.canvas.height = 1;
+        if (!out) throw new Error('The browser could not create the translated image.');
+        return {blob: out, note: result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : ''};
+      } finally { bitmap.close(); }
+    }
+
     async function translatePage(img) {
       working.add(img);
       const page = pages.get(img);
       page.status = 'working'; renderMarks(); progress();
       const following = nextAfter(img);
       if (following) fetchBlob(pages.get(following).source).catch(() => {});
+      const isCurrent = () => !stopped && pages.get(img) === page;
       try {
+        // Finished before (a reload, going back, or read ahead): shown at once. It counts when seen.
         const key = pageCache.key(settings, page.source);
         const cached = await pageCache.get(key);
-        if (pages.get(img) !== page || stopped) return;
+        if (!isCurrent()) return;
         if (cached) {
           if (cached.blob) { apply(img, page, cached.blob); page.status = 'done'; done++; } else page.status = 'empty';
           page.note = cached.note || '';
           return;
         }
-        // Free plan: pages already translated (above) are free to show again, and so is a page
-        // translated again today (other settings, other names); new ones count.
-        if (COUNTED && !counted.has(page.source)) {
-          const p = await refreshPlan();
-          if (pages.get(img) !== page || stopped) return;
-          // (A page being read ahead beside this one counts too.)
-          if (p && !p.pro && p.used + working.size - 1 >= p.limit) {
-            // Counted earlier today, before a reload or in another tab.
-            const again = await background({type: 'counted', id: pageCache.hash(page.source)}).then(r => r?.counted === true, () => false);
-            if (pages.get(img) !== page || stopped) return;
-            if (!again) { page.status = 'limited'; blocked = true; return; }
-            counted.add(page.source);
+        if (COUNTED && !page.counted && !page.paid) {
+          await refreshPlan();
+          if (!isCurrent()) return;
+          if (!mayTranslate(img, page)) {
+            // Shown earlier today (before a reload, or in another tab): free.
+            const again = await background({type: 'counted', url: page.source}).then(r => r?.counted === true, () => false);
+            if (!isCurrent()) return;
+            if (again) page.paid = true;
+            else if (distanceOf(img) > 0) { page.status = 'queued'; page.held = true; return; }
+            else { page.status = 'limited'; blocked = true; return; }
           }
         }
-        const download = fetchBlob(page.source);
-        download.catch(() => {});
-        await helpersReady();
-        if (pages.get(img) !== page || stopped) return;
-        say('Translating', 'Downloading the page…');
-        const blob = await download;
-        if (blob.size > MAX_BYTES) throw new Error('The image is larger than 30 MB.');
-        const bitmap = await createImageBitmap(blob), {width, height} = bitmap;
-        try {
-          if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
-          await fontReady;
-          // While the model is still loading, that is what the first page waits for.
-          let last = '';
-          const report = text => { last = text; say('Translating', warming && text === FINDING ? 'Loading the model into memory…' : text); };
-          warming?.then(() => { if (last === FINDING && !stopped && pages.get(img) === page) say('Translating', FINDING); });
-          const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
-            report, stopped: () => stopped || pages.get(img) !== page,
-            preview: piece => addPiece(img, page, piece, width, height)});
-          if (pages.get(img) !== page) return;
-          if (result.canvas) {
-            const big = result.canvas.width * result.canvas.height > 8e6;
-            const out = await new Promise(resolve => result.canvas.toBlob(resolve, big ? 'image/jpeg' : 'image/png', 0.93));
-            result.canvas.width = result.canvas.height = 1;
-            if (!out) throw new Error('The browser could not create the translated image.');
-            apply(img, page, out);
-            // The bubbles shown early fade out once the finished page is on screen beneath them.
-            const overlay = page.overlay;
-            if (overlay) {
-              (page.showing ? img.decode().catch(() => {}) : Promise.resolve())
-                .then(() => requestAnimationFrame(() => removeOverlay(page, overlay, true)));
-            }
-            page.status = 'done'; done++;
-            if (COUNTED && !counted.has(page.source)) {
-              counted.add(page.source);
-              background({type: 'used', image: {id: pageCache.hash(page.source), strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
-            }
-            page.note = result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : '';
-            pageCache.put(key, {blob: out, note: page.note});
-          } else {
-            page.status = 'empty'; page.note = result.message;
-            pageCache.put(key, {note: page.note});
-          }
-        } finally { bitmap.close(); }
+        const {blob, note} = await translateImage(page.source, img, isCurrent, (piece, width, height) => addPiece(img, page, piece, width, height));
+        page.note = note;
+        pageCache.put(key, {blob, note});
+        if (!blob) { page.status = 'empty'; return; }
+        apply(img, page, blob);
+        // The bubbles shown early fade out once the finished page is on screen beneath them.
+        const overlay = page.overlay;
+        if (overlay) {
+          (page.showing ? img.decode().catch(() => {}) : Promise.resolve())
+            .then(() => requestAnimationFrame(() => removeOverlay(page, overlay, true)));
+        }
+        page.status = 'done'; done++;
       } catch (error) {
         if (pages.get(img) === page) {
           page.status = error.code === 'ABORT' ? 'queued' : 'failed';
@@ -3991,9 +4058,182 @@
       } finally {
         working.delete(img);
         if (page.overlay && page.status !== 'done') removeOverlay(page);
-        renderMarks(); progress();
+        renderMarks(); progress(); countSeen();
         if (!stopped) setTimeout(pump, 0);
       }
+    }
+
+    /* ---------- Reading ahead on readers with a page per address ---------- */
+
+    // Many readers show one page per address, and the next page's picture is not in this
+    // document. When nothing else is left to do, the next page is downloaded (one at a time,
+    // with this page as referrer), its picture found where this page's is, and translated into
+    // the memory cache: when the reader moves on, it shows at once. Pictures the reader loads in
+    // advance (hidden, or <link rel="preload">) are translated the same way. Readers that draw
+    // their pages with scripts have no picture in the next page's HTML; those are translated
+    // when they arrive.
+    const nextPages = (() => {
+      const pending = new Set(), tried = new Set();
+      let running = false;
+      // The page's main picture: the largest one on screen.
+      const mainImage = () => {
+        let best = null, area = 0;
+        for (const [img, page] of pages) {
+          if (!img.isConnected || distanceOf(img) !== 0) continue;
+          const r = img.getBoundingClientRect();
+          if (r.width * r.height > area && page.status !== 'queued') { best = img; area = r.width * r.height; }
+        }
+        return best;
+      };
+      async function translateAhead(source) {
+        const key = pageCache.key(settings, source);
+        if (pageCache.has(key) || pending.has(source)) return;
+        pending.add(source);
+        try {
+          if (await pageCache.get(key)) return;
+          const {blob, note} = await translateImage(source, null, () => !stopped && !paused);
+          pageCache.put(key, {blob, note});
+        } finally { pending.delete(source); }
+      }
+      async function run() {
+        if (running || stopped || paused || !ready || blocked || !WEB) return;
+        const main = mainImage();
+        if (!main) return;
+        const limit = !COUNTED ? 2 : plan?.pro ? 3 : 1;
+        if (free() && plan.limit - plan.used - unseen() <= 0) return;
+        running = true;
+        let count = 0;
+        try {
+          // Pictures loaded in advance by the reader.
+          for (const source of preloaded()) {
+            if (count >= limit || stopped || paused) return;
+            if (tried.has(source)) continue;
+            tried.add(source); count++;
+            await translateAhead(source).catch(() => {});
+          }
+          // The next addresses.
+          let doc = document, base = location.href, mainPath = pathOf(main);
+          for (let depth = 0; depth < limit && count < limit && !stopped && !paused; depth++) {
+            const next = nextPageLink(doc, base, depth === 0 ? main : null);
+            if (!next || tried.has(next)) {
+              if (!next) return;
+              // Read before: follow on from its own next page, without fetching again.
+              return;
+            }
+            tried.add(next);
+            const response = await request({method: 'GET', url: next, timeout: 20000, anonymous: false, headers: {Referer: location.href}});
+            if (response.status !== 200 || stopped) return;
+            doc = new DOMParser().parseFromString(response.responseText, 'text/html');
+            base = next;
+            const source = pictureLike(doc, base, main, mainPath);
+            if (!source) return;
+            count++;
+            say(`${done} page${done === 1 ? '' : 's'} translated`, 'Translating the next page ahead…');
+            await translateAhead(source).catch(() => {});
+            if (free() && plan.limit - plan.used - unseen() <= 0) return;
+          }
+        } catch {} finally {
+          running = false;
+          if (!stopped) idleStatus();
+        }
+      }
+      return {run, pending};
+    })();
+
+    // Pictures the reader has loaded in advance: hidden or off to the side, or preloaded.
+    function preloaded() {
+      const found = [];
+      for (const link of document.querySelectorAll('link[rel~="preload" i][as="image" i][href]')) {
+        try { found.push(new URL(link.getAttribute('href'), location.href).href); } catch {}
+      }
+      for (const img of document.images) {
+        if (pages.has(img) || img.naturalWidth < 300 || img.naturalHeight < 250) continue;
+        const r = img.getBoundingClientRect();
+        if ((r.width < 2 || r.height < 2 || r.right < 0 || r.left > innerWidth) && /^https?:/.test(sourceOf(img))) found.push(sourceOf(img));
+      }
+      return [...new Set(found)].filter(src => ![...pages.values()].some(p => p.source === src));
+    }
+
+    // Where an element sits: tag, position among siblings of that tag, id and classes, from <body>.
+    function pathOf(el) {
+      const path = [];
+      for (let n = el; n && n !== document.body && n.parentElement; n = n.parentElement) {
+        const same = [...n.parentElement.children].filter(c => c.tagName === n.tagName);
+        path.unshift({tag: n.tagName, index: same.indexOf(n), id: n.id, classes: [...n.classList]});
+      }
+      return path;
+    }
+    // The address of a picture in a parsed document, lazy-loading attributes included.
+    function pictureSource(img, base) {
+      const lazy = ['data-src', 'data-lazy-src', 'data-original', 'data-url', 'data-lazy'].map(a => img.getAttribute(a)).find(Boolean);
+      let src = img.getAttribute('src') || '';
+      if (lazy && (!src || /^data:|blank|placeholder|loading|spacer/i.test(src))) src = lazy;
+      if (!src) src = (img.getAttribute('srcset') || img.getAttribute('data-srcset') || '').split(',')[0].trim().split(/\s+/)[0];
+      try { const url = new URL(src, base); return /^https?:$/.test(url.protocol) ? url.href : ''; } catch { return ''; }
+    }
+    // The picture of the next page that is in the same place as this page's: by the same path,
+    // the same id, the same classes, then one from the same folder of the image server, then the
+    // largest.
+    function pictureLike(doc, base, main, path) {
+      let node = doc.body;
+      for (const step of path) {
+        if (!node) break;
+        node = [...node.children].filter(c => c.tagName === step.tag)[step.index] || null;
+      }
+      const images = [...doc.querySelectorAll('img')];
+      const here = sourceOf(main), folder = here.slice(0, here.lastIndexOf('/') + 1);
+      const pick = node?.tagName === 'IMG' ? node
+        : (main.id && doc.getElementById(main.id)?.tagName === 'IMG' && doc.getElementById(main.id))
+        || (main.classList.length && images.find(i => [...main.classList].every(c => i.classList.contains(c))))
+        || images.find(i => pictureSource(i, base).startsWith(folder) && pictureSource(i, base) !== here)
+        || images.map(i => ({i, area: (+i.getAttribute('width') || 0) * (+i.getAttribute('height') || 0)})).sort((a, b) => b.area - a.area).find(x => x.area >= 300 * 250)?.i;
+      const src = pick && pictureSource(pick, base);
+      return src && src !== here ? src : '';
+    }
+    // The link to the next page: rel="next", a link named Next (in several languages) or an
+    // arrow, the main picture itself when it links on, a link beside the picture, and an address
+    // with the page number one higher. Next-chapter links only when there is nothing else.
+    const NEXT_NAME = /^(next|next page|siguiente|próxima|suivant|weiter|次|次へ|次のページ|次ページ|다음|다음 페이지|다음페이지|下一页|下一頁|[›»→>]|>>|→\s*|.*\bnext\s*(page|›|»|→|>)?)$/i;
+    const CHAPTER = /chap|chapter|episode|\bep\b|話|章|화|capítulo|chapitre/i;
+    function nextPageLink(doc, base, main) {
+      const here = new URL(base), plain = u => u.href.split('#')[0];
+      const bumped = url => {
+        const a = plain(here).match(/\d+/g) || [], b = plain(url).match(/\d+/g) || [];
+        if (a.length !== b.length || plain(here).replace(/\d+/g, '#') !== plain(url).replace(/\d+/g, '#')) return false;
+        const diff = a.map((v, i) => +b[i] - +v).filter(d => d !== 0);
+        return diff.length === 1 && diff[0] === 1;
+      };
+      const found = new Map();
+      const add = (href, score) => {
+        let url;
+        try { url = new URL(href, base); } catch { return; }
+        if (!/^https?:$/.test(url.protocol) || siteOf(url.hostname) !== siteOf(here.hostname) || plain(url) === plain(here)) return;
+        if (bumped(url)) score += 30;
+        found.set(plain(url), Math.max(found.get(plain(url)) ?? -Infinity, score));
+      };
+      for (const link of doc.querySelectorAll('link[rel][href]')) if (/(^|\s)next(\s|$)/i.test(link.getAttribute('rel'))) add(link.getAttribute('href'), 100);
+      const mainBox = main && doc === document ? main.getBoundingClientRect() : null;
+      for (const a of doc.querySelectorAll('a[href]')) {
+        const href = a.getAttribute('href');
+        if (!href || /^(javascript:|#)/i.test(href)) continue;
+        const name = (a.getAttribute('aria-label') || a.getAttribute('title') || a.textContent || '').replace(/\s+/g, ' ').trim();
+        const marks = `${a.id} ${a.className && typeof a.className === 'string' ? a.className : ''}`;
+        let score = 0;
+        if (/(^|\s)next(\s|$)/i.test(a.getAttribute('rel') || '')) score += 90;
+        if (name.length <= 30 && NEXT_NAME.test(name)) score += 70;
+        if (/next/i.test(marks)) score += 40;
+        if (main && doc === document && a.contains(main)) score += 60;
+        if (mainBox && !name) {
+          // An arrow beside the picture.
+          const r = a.getBoundingClientRect();
+          if (r.width > 0 && r.top < mainBox.bottom && r.bottom > mainBox.top && r.left >= mainBox.right - r.width && r.left - mainBox.right < 160) score += 40;
+        }
+        if (score > 0 && (CHAPTER.test(name) || CHAPTER.test(marks))) score -= 60;
+        if (score > 0 || bumped(new URL(href, base))) add(href, score);
+      }
+      let best = '', top = 0;
+      for (const [url, score] of found) if (score > top) { best = url; top = score; }
+      return best;
     }
 
     // Part of a long strip: stacked edge to edge with another image of the same width, or very tall.
@@ -4122,6 +4362,7 @@
     /* ---------- Swapping images ---------- */
 
     function apply(img, page, blob) {
+      page.mime = blob.type;
       page.nodes ||= [
         {node: img, attrs: ['src', 'srcset', 'sizes'].map(k => [k, img.getAttribute(k)])},
         ...[...(img.closest('picture')?.querySelectorAll('source') || [])].map(node => ({node, attrs: [['srcset', node.getAttribute('srcset')]]}))
@@ -4146,13 +4387,14 @@
       const page = pages.get(img);
       if (!page?.url) return;
       if (page.showing) restore(img, page); else show(img, page);
-      renderMarks();
+      renderMarks(); countSeen();
     }
 
     $('swap').onclick = () => {
       showOriginals = !showOriginals;
       for (const [img, page] of pages) if (page.url) (showOriginals ? restore : show)(img, page);
       $('swap').setAttribute('aria-pressed', String(showOriginals));
+      countSeen();
       const label = showOriginals ? 'Show translations' : 'Show originals';
       $('swap').title = label; $('swap').setAttribute('aria-label', label);
       renderMarks();
@@ -4182,6 +4424,7 @@
       clearInterval(sweeper); clearInterval(dayTimer); observer.disconnect();
       if (EXTENSION) chrome.storage.onChanged.removeListener(onPlanChange);
       document.removeEventListener('load', onLoad, true);
+      document.removeEventListener('visibilitychange', onVisible);
       document.removeEventListener('pointerdown', clickLaunch, true);
       removeEventListener('scroll', placeMarks, true); removeEventListener('resize', placeMarks);
       for (const img of [...pages.keys()]) forget(img);
@@ -4194,27 +4437,48 @@
 
     /* ---------- Per-image marks ---------- */
 
+    // Each page's mark: click to compare with the original; beside it, on hover or focus, a
+    // button to save the translated page.
     function renderMarks() {
       for (const [img, page] of pages) {
         const kind = page.status === 'working' ? 'working' : page.status === 'failed' ? 'failed' : page.url ? (page.showing ? 'done' : 'original') : null;
         if (!kind) { page.mark?.remove(); page.mark = null; continue; }
         if (!page.mark) {
-          page.mark = document.createElement('button');
-          page.mark.onclick = () => {
+          page.mark = document.createElement('div');
+          page.mark.className = 'markbox';
+          const mark = document.createElement('button'), saveButton = document.createElement('button');
+          mark.onclick = () => {
             if (page.status === 'failed') { page.status = 'queued'; page.error = ''; renderMarks(); pump(); }
             else if (page.url) toggle(img);
           };
+          saveButton.className = 'save'; saveButton.textContent = 'Save image';
+          saveButton.title = 'Save the translated page as an image';
+          saveButton.onclick = () => saveImage(page);
+          page.mark.append(mark, saveButton);
           marks.append(page.mark);
         }
-        const m = page.mark;
+        const [m, saveButton] = page.mark.children;
         m.className = `mark ${kind}`;
         m.textContent = kind === 'failed' ? '!' : kind === 'done' ? '文' : kind === 'original' ? 'A' : '';
         const label = kind === 'working' ? 'Translating this page' : kind === 'failed' ? `Failed: ${page.error} Click to retry.`
           : kind === 'done' ? `Translated${page.note ? ` (${page.note})` : ''}. Click to show the original.` : 'Original. Click to show the translation.';
         m.title = label; m.setAttribute('aria-label', label);
         m.disabled = kind === 'working';
+        saveButton.hidden = !page.url;
       }
       placeMarks();
+    }
+
+    // Saved only when asked: the translated page, named after the original picture.
+    function saveImage(page) {
+      if (!page.url) return;
+      let name = 'page';
+      try { name = decodeURIComponent(new URL(page.source).pathname.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '') || 'page'; } catch {}
+      name = name.replace(/[^\p{L}\p{N}._-]+/gu, '-').slice(0, 80);
+      const link = document.createElement('a');
+      link.href = page.url; link.download = `${name}-translated.${page.mime === 'image/jpeg' ? 'jpg' : 'png'}`;
+      link.style.display = 'none';
+      document.documentElement.append(link); link.click(); link.remove();
     }
 
     let placing = false;
@@ -4223,15 +4487,20 @@
       placing = true;
       requestAnimationFrame(() => {
         placing = false;
+        let waitingOnScreen = false;
         for (const [img, page] of pages) {
+          if (page.status === 'queued' && distanceOf(img) === 0) waitingOnScreen = true;
           if (!page.mark) continue;
           const r = img.getBoundingClientRect();
           const visible = r.bottom > 48 && r.top < innerHeight - 20 && r.right > 0 && r.left < innerWidth && img.isConnected;
           page.mark.style.display = visible ? '' : 'none';
           if (!visible) continue;
-          page.mark.style.left = `${Math.min(r.right, innerWidth) - 40}px`;
+          page.mark.style.left = `${Math.min(r.right, innerWidth) - 10}px`;
           page.mark.style.top = `${clamp(r.top + 10, 10, r.bottom - 40)}px`;
         }
+        // Scrolling: pages coming into view count, and a page scrolled to goes first.
+        countSeen();
+        if (waitingOnScreen) pump();
       });
     }
     addEventListener('scroll', placeMarks, {capture: true, passive: true});
