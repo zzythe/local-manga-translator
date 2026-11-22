@@ -13,10 +13,11 @@ const root = dirname(fileURLToPath(import.meta.url));
 const read = p => readFileSync(join(root, p), 'utf8');
 
 const source = read('src/translator.src.js');
-// Bundled lettering fonts (SIL Open Font License 1.1): dialogue, and sound effects in a crisp
-// brush hand and a heavy one.
+// Bundled fonts (SIL Open Font License 1.1): dialogue lettering (made by tools/lettering-font.py),
+// sound effects in a crisp brush hand and a heavy one, and the control's own title.
 const fonts = [
-  {file: 'ComicNeue-Bold.ttf', licence: 'ComicNeue-OFL.txt', name: 'Comic Neue Bold', placeholder: "'__FONT_DATA__'"},
+  {file: 'MLTLettering-ExtraBold.ttf', licence: 'MLTLettering-OFL.txt', name: 'MLT Lettering (Shantell Sans ExtraBold, subset and condensed)', placeholder: "'__FONT_DATA__'"},
+  {file: 'ComicNeue-Bold.ttf', licence: 'ComicNeue-OFL.txt', name: 'Comic Neue Bold', placeholder: "'__UI_FONT_DATA__'"},
   {file: 'SFXCrisp-Regular.ttf', licence: 'SFXCrisp-OFL.txt', name: 'MLT Brush Crisp (subset of Kaushan Script)', placeholder: "'__SFX_CRISP_DATA__'"},
   {file: 'Knewave-Regular.ttf', licence: 'Knewave-OFL.txt', name: 'Knewave', placeholder: "'__SFX_HEAVY_DATA__'"}
 ].map(f => ({...f, data: readFileSync(join(root, 'src/fonts', f.file)), text: read(`src/fonts/${f.licence}`)}));

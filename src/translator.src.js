@@ -2661,9 +2661,10 @@
    * ==================================================================================== */
 
   const MAX_WORK_WIDTH = 1600, DETECT_WIDTH = 1024;
-  // Lettering fonts: dialogue (CC Wild Words when installed, else the bundled Comic Neue Bold) and
-  // sound effects in a brush hand matched to the original's strokes (crisp: MLT Brush Crisp, a
-  // subset of Kaushan Script; heavy: Knewave). Scripts they lack fall back to system fonts.
+  // Lettering fonts: dialogue (CC Wild Words when installed, else the bundled MLT Lettering, a
+  // condensed Shantell Sans ExtraBold) and sound effects in a brush hand matched to the original's
+  // strokes (crisp: MLT Brush Crisp, a subset of Kaushan Script; heavy: Knewave). Scripts they lack
+  // fall back to system fonts.
   const CJK_FALLBACK = '"Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Yu Gothic UI", "Hiragino Sans", ' +
     '"Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
   const DIALOGUE_FONT = `"MangaLettering", "Comic Sans MS", ${CJK_FALLBACK}`;
@@ -3915,7 +3916,7 @@
   };
 
   // Comic lettering fonts a reader may have installed, best first. Dialogue uses the chosen one
-  // ('auto': the first installed), else the bundled Comic Neue Bold. They can't be bundled.
+  // ('auto': the first installed), else the bundled MLT Lettering. They can't be bundled.
   const LOCAL_FONTS = [
     {name: 'CC Wild Words', src: 'local("CCWildWords-Roman"), local("CCWildWords"), local("CCWildWords Roman"), local("CC Wild Words Roman")'},
     {name: 'Anime Ace', src: 'local("AnimeAce3BB-Bold"), local("Anime Ace 3 BB Bold"), local("AnimeAce2.0BB-Bold"), local("Anime Ace 2.0 BB Bold"), ' +
@@ -3938,7 +3939,7 @@
     const local = choice === 'bundled' ? null : installed.find(f => choice === 'auto' || f.name === choice) || installed[0] || null;
     const bundled = letteringFonts().map(f => ({...f, face: new FontFace(f.family, Uint8Array.from(atob(f.data), c => c.charCodeAt(0)).buffer, {weight: f.weight})}));
     // The control's own title and buttons are always in Comic Neue, whatever the lettering font.
-    const ui = bundled.find(f => f.family === 'MangaLettering');
+    const ui = uiFont();
     bundledLoaded ??= Promise.all([...bundled.filter(f => f.family !== 'MangaLettering').map(f => f.face),
       new FontFace(UI_FONT_FACE, Uint8Array.from(atob(ui.data), c => c.charCodeAt(0)).buffer, {weight: ui.weight})]
       .map(async face => document.fonts.add(await face.load())));
@@ -4070,7 +4071,7 @@
             <div class="more-body">
               <div class="field"><label for="source">From</label><select id="source">${SOURCE_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
               <div class="field" id="model-row" hidden><label for="model">Model</label><select id="model"></select></div>
-              <div class="field"><label for="font">Font</label><select id="font"><option value="auto">Automatic</option><option value="bundled">Comic Neue</option></select></div>
+              <div class="field"><label for="font">Font</label><select id="font"><option value="auto">Automatic</option><option value="bundled">Shantell Sans</option></select></div>
               <label class="check"><input type="checkbox" id="uppercase"><span>All capitals</span></label>
               <details class="names" id="names"><summary id="names-label">Names</summary>
                 <textarea id="terms" rows="3" spellcheck="false" placeholder="シチミ = Shichimi" aria-labelledby="names-label"></textarea></details>
@@ -5063,3 +5064,7 @@
       {family: 'MangaSFXHeavy', data: '__SFX_HEAVY_DATA__', weight: '400'}];
   }
 })();
+  // The control's own title and buttons: Comic Neue Bold.
+  function uiFont() {
+    return {data: '__UI_FONT_DATA__', weight: '700'};
+  }
