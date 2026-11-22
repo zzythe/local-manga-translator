@@ -230,3 +230,264 @@ test('tiles cover a tall strip with overlaps and disjoint ownership', () => {
   assert.equal(list.at(-1).end, 5000);
   for (let i = 1; i < list.length; i++) assert.equal(list[i].start, list[i - 1].end);
 });
+
+// ---------- fixes from the quality pass (tools/quality/) ----------
+// A deterministic pseudo-random source, so textured test art is the same on every run.
+function rng(seed) { return () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff); }
+
+test('JPEG ringing round bubble lettering is erased too, not left as a ghost', () => {
+  const img = page(500, 400, [120, 120, 120]);
+  ellipse(img, 250, 200, 160, 110, [255, 255, 255], [0, 0, 0]);
+  glyphs(img, 190, 170, 7, 3);
+  // Mosquito noise: faint grey speckles up to 3 px from the strokes, as JPEG leaves them.
+  const random = rng(7), ink = (x, y) => img.data[(y * img.width + x) * 4] === 20;
+  for (let y = 166; y < 240; y++) for (let x = 186; x < 304; x++) {
+    const p = (y * img.width + x) * 4;
+    if (img.data[p] !== 255 || random() >= 0.3) continue;
+    let near = false;
+    for (let dy = -3; dy <= 3 && !near; dy++) for (let dx = -3; dx <= 3; dx++) if (ink(x + dx, y + dy)) { near = true; break; }
+    if (near) img.data.set([228, 228, 228], p);
+  }
+  const [block] = t.findBubbleText(img.data, img.width, img.height);
+  const plan = block.erase, part = crop(img, plan);
+  t.applyErase(part, plan);
+  let left = 0;
+  for (let y = 166; y < 240; y++) for (let x = 186; x < 304; x++) {
+    const i = (y - plan.y) * part.width + (x - plan.x);
+    const v = plan.mask[i] ? lumAt(part, i) : lumAt(img, y * img.width + x);
+    if (v < 240) left++;
+  }
+  assert.ok(left < 10, `${left} ghost pixels left round the lettering`);
+});
+
+test('two speech clusters on one stretch of paper get separate blocks that do not overlap', () => {
+  // Bubbles open onto the white gutter, so the paper is one region: each cluster must still be
+  // its own block, laid out in its own part of the paper.
+  const img = page(700, 300, [255, 255, 255]);
+  glyphs(img, 60, 100, 6, 3);
+  glyphs(img, 480, 120, 6, 3);
+  const blocks = t.findBubbleText(img.data, img.width, img.height);
+  assert.equal(blocks.length, 2, JSON.stringify(blocks.map(b => [b.x, b.y, b.width, b.height])));
+  const [a, b] = blocks.sort((p, q) => p.x - q.x);
+  assert.ok(a.layout.x + a.layout.width <= b.layout.x, 'layouts are disjoint');
+});
+
+test('findPanels finds panels separated by white gutters', () => {
+  const img = page(600, 500, [255, 255, 255]);
+  const random = rng(3);
+  for (const [x0, y0, w, h] of [[20, 20, 560, 220], [20, 260, 270, 220], [310, 260, 270, 220]]) {
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+      const edge = x < x0 + 3 || y < y0 + 3 || x >= x0 + w - 3 || y >= y0 + h - 3;
+      set(img, x, y, edge ? [0, 0, 0] : [Math.round(100 + random() * 100), 120, 140]);
+    }
+  }
+  const panels = t.findPanels(img.data, img.width, img.height);
+  assert.equal(panels.length, 3, JSON.stringify(panels));
+  for (const p of panels) assert.ok(p.width < 580 && p.height < 240, JSON.stringify(p));
+});
+
+test('a grey bubble crossed by light streaks is found around a model box', () => {
+  const img = page(400, 300, [60, 60, 70]);
+  ellipse(img, 200, 150, 120, 80, [175, 175, 178], [20, 20, 20]);
+  // Translucent bubbles show the art's light streaks through them.
+  for (let y = 70; y < 230; y++) for (let x = 80; x < 320; x++) {
+    if ((x + y) % 40 < 3 && ((x - 200) / 120) ** 2 + ((y - 150) / 80) ** 2 < 1) set(img, x, y, [215, 215, 218]);
+  }
+  glyphs(img, 150, 120, 6, 3, [15, 15, 15]);
+  const found = t.findBubbleAround(img, {x: 148, y: 118, width: 98, height: 62}, []);
+  assert.ok(found.length >= 1, 'grey bubble found');
+  const b = found[0];
+  assert.ok(b.x <= 152 && b.x + b.width >= 240 && b.y <= 122 && b.y + b.height >= 175, JSON.stringify([b.x, b.y, b.width, b.height]));
+});
+
+test('light lettering in a solid dark bubble is found inverted and lettered light', () => {
+  const img = page(400, 300, [200, 200, 200]);
+  ellipse(img, 200, 150, 120, 80, [10, 10, 10], [255, 255, 255]);
+  glyphs(img, 150, 120, 6, 3, [245, 245, 245]);
+  const found = t.findBubbleAround(img, {x: 148, y: 118, width: 98, height: 62}, []);
+  assert.ok(found.length >= 1);
+  assert.equal(found[0].inverted, true);
+  assert.ok(parseInt(found[0].erase.color.slice(1, 3), 16) > 200, found[0].erase.color);
+});
+
+test('painted SFX on busy artwork is picked out by its colour and cleaned', () => {
+  const random = rng(11);
+  const img = page(220, 120, [0, 0, 0]);
+  // Painterly greens and browns, no dominant colour.
+  for (let y = 0; y < 120; y++) for (let x = 0; x < 220; x++) {
+    const k = ((x >> 3) + (y >> 3) * 3 + Math.floor(random() * 2)) % 4;
+    set(img, x, y, [[40, 90, 70], [80, 120, 90], [110, 90, 60], [30, 60, 50]][k]);
+  }
+  glyphs(img, 60, 45, 6, 1, [235, 160, 60]);
+  const plan = t.planLooseErase(img, {x: 58, y: 43, width: 98, height: 20});
+  assert.ok(plan, 'orange lettering on busy art is cleanable');
+  let hit = 0, total = 0, extra = 0;
+  for (let y = 0; y < 120; y++) for (let x = 0; x < 220; x++) {
+    const i = y * 220 + x, p = i * 4, orange = img.data[p] === 235 && img.data[p + 1] === 160;
+    if (orange) { total++; if (plan.mask[i]) hit++; } else if (plan.mask[i] && (y < 35 || y > 75)) extra++;
+  }
+  assert.equal(hit, total, 'every stroke pixel is cleaned');
+  assert.equal(extra, 0, 'artwork away from the text is untouched');
+  assert.equal(plan.outline, null);
+});
+
+test('loose lettering gets an outline only when the original had one', () => {
+  const plain = page(160, 70, [150, 150, 150]);
+  glyphs(plain, 30, 25, 5, 1, [20, 20, 20]);
+  assert.equal(t.planLooseErase(plain, {x: 28, y: 23, width: 80, height: 20}).outline, null);
+  // Letters spaced a little wider, with a white rim two pixels wide.
+  const letters = page(160, 70, [150, 150, 150]), rimmed = page(160, 70, [150, 150, 150]);
+  const spaced = img => { for (let k = 0; k < 4; k++) glyphs(img, 30 + k * 22, 25, 1, 1, [20, 20, 20]); };
+  spaced(letters);
+  for (let y = 0; y < 70; y++) for (let x = 0; x < 160; x++) {
+    let near = false;
+    for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < 160 && yy < 70 && letters.data[(yy * 160 + xx) * 4] === 20) { near = true; break; }
+    }
+    if (near) set(rimmed, x, y, [255, 255, 255]);
+  }
+  spaced(rimmed);
+  const plan = t.planLooseErase(rimmed, {x: 28, y: 23, width: 80, height: 20});
+  assert.ok(plan && plan.outline, 'outline found');
+  assert.ok(parseInt(plan.outline.slice(1, 3), 16) > 200, plan.outline);
+});
+
+test('sparkles in another colour beside an SFX are not erased with it', () => {
+  const img = page(200, 100, [40, 90, 80]);
+  glyphs(img, 60, 40, 5, 1, [240, 190, 60]);
+  // White sparkles just left of and above the lettering.
+  const sparkles = [[45, 35], [52, 62], [70, 28]];
+  for (const [cx, cy] of sparkles) for (let d = -3; d <= 3; d++) { set(img, cx + d, cy, [255, 255, 255]); set(img, cx, cy + d, [255, 255, 255]); }
+  const plan = t.planLooseErase(img, {x: 58, y: 38, width: 82, height: 20});
+  assert.ok(plan);
+  for (const [cx, cy] of sparkles) assert.ok(!plan.mask[cy * 200 + cx], `sparkle at ${cx},${cy} kept`);
+  assert.ok(plan.mask[48 * 200 + 61], 'lettering cleaned');
+});
+
+test('an artwork outline touching the first letter is cut off where it leaves the line of text', () => {
+  const img = page(260, 160, [70, 60, 90]);
+  glyphs(img, 70, 70, 8, 1, [225, 240, 250]);
+  // A thin light curve (a bottle's outline) rising from the first glyph far above the line.
+  for (let y = 10; y < 72; y++) { const x = 72 - Math.round((72 - y) * 0.3); set(img, x, y, [225, 240, 250]); set(img, x + 1, y, [225, 240, 250]); }
+  const plan = t.planLooseErase(img, {x: 68, y: 66, width: 130, height: 24});
+  assert.ok(plan);
+  assert.ok(plan.mask[78 * 260 + 71], 'first glyph cleaned');
+  assert.ok(!plan.mask[20 * 260 + 57], 'the outline far above the text is kept');
+});
+
+test('inpainting rebuilds texture, not a flat smear', () => {
+  const random = rng(5);
+  const w = 120, h = 80, img = page(w, h, [0, 0, 0]);
+  for (let i = 0; i < w * h; i++) { const v = 120 + Math.round((random() - 0.5) * 40); img.data.set([v, v, v, 255], i * 4); }
+  const mask = new Uint8Array(w * h);
+  for (let y = 30; y < 50; y++) for (let x = 40; x < 80; x++) mask[y * w + x] = 1;
+  t.inpaint(img.data, w, h, mask);
+  const inside = [];
+  for (let y = 32; y < 48; y++) for (let x = 42; x < 78; x++) inside.push(img.data[(y * w + x) * 4]);
+  const mean = inside.reduce((a, v) => a + v, 0) / inside.length;
+  const std = Math.sqrt(inside.reduce((a, v) => a + (v - mean) ** 2, 0) / inside.length);
+  assert.ok(Math.abs(mean - 120) < 6, `mean ${mean}`);
+  assert.ok(std > 5, `grain kept (std ${std.toFixed(1)}; the art has about 11.5)`);
+});
+
+test('strokeStyle measures stroke weight and slant', () => {
+  const w = 300, h = 200;
+  const draw = (angle, thickness) => {
+    const m = new Uint8Array(w * h), c = Math.cos(angle), s = Math.sin(angle);
+    // Five letter-sized boxes of strokes along a line through the middle at the given angle.
+    for (let k = 0; k < 5; k++) for (let u = 0; u < 30; u++) for (let v = 0; v < 30; v++) {
+      if (!(u < thickness || u >= 30 - thickness || v < thickness || v >= 30 - thickness)) continue;
+      const a = k * 36 - 90 + u - 15, b = v - 15;
+      for (const [dx, dy] of [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]]) {
+        const x = Math.round(150 + (a + dx) * c - (b + dy) * s), y = Math.round(100 + (a + dx) * s + (b + dy) * c);
+        if (x >= 0 && y >= 0 && x < w && y < h) m[y * w + x] = 1;
+      }
+    }
+    return t.strokeStyle(m, w, h);
+  };
+  const level = draw(0, 3), tilted = draw(-0.4, 3), heavy = draw(0, 8);
+  assert.ok(Math.abs(level.angle) < 0.05, `level ${level.angle}`);
+  assert.ok(Math.abs(tilted.angle + 0.4) < 0.08, `tilted ${tilted.angle}`);
+  assert.ok(Math.abs(level.thickness - 3.5) <= 1.2, `thickness ${level.thickness}`);
+  assert.ok(heavy.weight > level.weight * 1.8, `${heavy.weight} vs ${level.weight}`);
+  assert.ok(Math.abs(level.breadth - 31) <= 3, `breadth ${level.breadth}`);
+});
+
+test('known Japanese sound effects become English SFX, misread kana included', () => {
+  assert.equal(t.knownSFX('ざぶん'), 'SPLASH');
+  assert.equal(t.knownSFX('ザブーン！'), 'SPLASH');
+  assert.equal(t.knownSFX('さぶん'), 'SPLASH', 'a lost dakuten');
+  assert.equal(t.knownSFX('シユウウ…'), 'FSSSH', 'big ユ for small ュ, drawn-out vowel');
+  assert.equal(t.knownSFX('ぽたぽた'), 'DRIP DRIP');
+  assert.equal(t.knownSFX('どばどば'), 'GLUG GLUG');
+  assert.equal(t.knownSFX('ズン'), 'THUD');
+  assert.equal(t.knownSFX('ありがとう'), '');
+  assert.equal(t.knownSFX('BOOM'), '');
+});
+
+test('a strip of panel art between the border and a bubble is not lettering, a letter near the edge is', () => {
+  // A bubble running into a panel's top-left corner: the page's white gutter and the bubble
+  // join, with a thin strip of the panel's dark art left between them.
+  const img = page(400, 300, [255, 255, 255]);
+  for (let y = 40; y < 280; y++) for (let x = 40; x < 380; x++) {
+    const bubble = (x >= 52 && x < 300 && y < 150) || (x < 52 && y >= 75 && y < 150);
+    if (!bubble) set(img, x, y, [60, 80, 100]);
+  }
+  glyphs(img, 110, 75, 7, 2);
+  const panels = [{x: 40, y: 40, width: 340, height: 240}];
+  const blocks = t.findBubbleText(img.data, img.width, img.height, {panels});
+  assert.equal(blocks.length, 1);
+  assert.ok(blocks[0].x >= 100, `block starts at the lettering, not the strip (x ${blocks[0].x})`);
+  // A letter right against the panel's edge is still lettering.
+  const edge = page(400, 300, [255, 255, 255]);
+  for (let y = 40; y < 280; y++) for (let x = 40; x < 380; x++) if (!(x >= 220 && y >= 80 && y < 160)) set(edge, x, y, [60, 80, 100]);
+  glyphs(edge, 271, 105, 7, 1);
+  const [b] = t.findBubbleText(edge.data, edge.width, edge.height, {panels});
+  assert.ok(b && b.x + b.width >= 378, `last glyph by the edge kept (${b && [b.x, b.width]})`);
+});
+
+test('chained bubbles whose paper joins become one block per bubble', () => {
+  const img = page(500, 300, [90, 60, 90]);
+  ellipse(img, 170, 100, 130, 45, [210, 215, 225]);
+  ellipse(img, 330, 165, 70, 40, [210, 215, 225]);
+  glyphs(img, 80, 90, 10, 1);   // the first bubble's line
+  glyphs(img, 310, 140, 3, 1);  // the second bubble's, off to the right and lower
+  const blocks = t.findBubbleText(img.data, img.width, img.height, {paper: 180, tint: [210, 215, 225]});
+  assert.equal(blocks.length, 2, JSON.stringify(blocks.map(b => [b.x, b.y, b.width, b.height])));
+  // Lines of one bubble, centred under each other, stay together.
+  const one = page(400, 300, [90, 60, 90]);
+  ellipse(one, 200, 150, 150, 80, [210, 215, 225]);
+  glyphs(one, 120, 110, 10, 1);
+  glyphs(one, 168, 140, 4, 1);
+  assert.equal(t.findBubbleText(one.data, one.width, one.height, {paper: 180, tint: [210, 215, 225]}).length, 1);
+});
+
+test('white lettering in a black rim on busy artwork is found by its outline', () => {
+  const random = rng(17);
+  const img = page(240, 140, [0, 0, 0]);
+  // Busy art, with white splashes of its own (not outlined) beside the text.
+  for (let y = 0; y < 140; y++) for (let x = 0; x < 240; x++) {
+    const k = ((x >> 2) + (y >> 3) * 5 + Math.floor(random() * 3)) % 5;
+    set(img, x, y, [[120, 60, 110], [80, 90, 140], [160, 120, 150], [100, 140, 170], [70, 50, 80]][k]);
+  }
+  for (let y = 20; y < 120; y++) for (let x = 10; x < 30; x++) if (random() < 0.5) set(img, x, y, [250, 250, 250]);
+  const letters = page(240, 140, [0, 0, 0]);
+  for (let k = 0; k < 4; k++) glyphs(letters, 70 + k * 24, 60, 1, 1, [255, 255, 255]);
+  for (let y = 0; y < 140; y++) for (let x = 0; x < 240; x++) {
+    let near = false;
+    for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < 240 && yy < 140 && letters.data[(yy * 240 + xx) * 4] === 255) { near = true; break; }
+    }
+    if (near) set(img, x, y, [25, 25, 28]);
+  }
+  for (let k = 0; k < 4; k++) glyphs(img, 70 + k * 24, 60, 1, 1, [245, 245, 248]);
+  const plan = t.planLooseErase(img, {x: 66, y: 56, width: 94, height: 24});
+  assert.ok(plan, 'outlined lettering is cleanable');
+  assert.ok(parseInt(plan.color.slice(1, 3), 16) > 220 && plan.outline && parseInt(plan.outline.slice(1, 3), 16) < 60, `${plan.color} / ${plan.outline}`);
+  assert.ok(plan.mask[61 * 240 + 71], 'letter cleaned');
+  let splash = 0;
+  for (let y = 20; y < 120; y++) for (let x = 10; x < 30; x++) if (plan.mask[y * 240 + x]) splash++;
+  assert.equal(splash, 0, 'the white splashes are left alone');
+});

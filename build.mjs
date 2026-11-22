@@ -13,16 +13,20 @@ const root = dirname(fileURLToPath(import.meta.url));
 const read = p => readFileSync(join(root, p), 'utf8');
 
 const source = read('src/translator.src.js');
-const original = read('src/original-v1.1.0.user.js');
-const font = /const encoded = '([A-Za-z0-9+/=]+)'/.exec(original)?.[1];
-const license = /\/\* Bundled Comic Neue Bold[\s\S]*?\*\//.exec(original)?.[0];
-if (!font || !license) throw new Error('Could not find the bundled font or its licence in the original script.');
-if (!source.includes("'__FONT_DATA__'") || !source.includes('/*__FONT_LICENSE__*/')) throw new Error('Placeholders missing.');
+// Bundled lettering fonts (SIL Open Font License 1.1): dialogue, and sound effects in a crisp
+// brush hand and a heavy one.
+const fonts = [
+  {file: 'ComicNeue-Bold.ttf', licence: 'ComicNeue-OFL.txt', name: 'Comic Neue Bold', placeholder: "'__FONT_DATA__'"},
+  {file: 'SFXCrisp-Regular.ttf', licence: 'SFXCrisp-OFL.txt', name: 'MLT Brush Crisp (subset of Kaushan Script)', placeholder: "'__SFX_CRISP_DATA__'"},
+  {file: 'Knewave-Regular.ttf', licence: 'Knewave-OFL.txt', name: 'Knewave', placeholder: "'__SFX_HEAVY_DATA__'"}
+].map(f => ({...f, data: readFileSync(join(root, 'src/fonts', f.file)), text: read(`src/fonts/${f.licence}`)}));
+const license = '/* Bundled fonts, SIL Open Font License 1.1.\n\n' +
+  fonts.map(f => `${f.name}:\n${f.text.trim()}`).join('\n\n').replace(/\*\//g, '* /') + '\n*/';
+if (!source.includes('/*__FONT_LICENSE__*/') || fonts.some(f => !source.includes(f.placeholder))) throw new Error('Placeholders missing.');
 
 const manifest = JSON.parse(read('extension/manifest.json'));
-const withFont = source
-  .replace('/*__FONT_LICENSE__*/', () => license.replace(/^\s+/, ''))
-  .replace("'__FONT_DATA__'", () => `'${font}'`);
+const withFont = fonts.reduce((text, f) => text.replace(f.placeholder, () => `'${f.data.toString('base64')}'`),
+  source.replace('/*__FONT_LICENSE__*/', () => license));
 
 // Userscript: same version as the extension.
 const userscript = withFont.replace(/(\/\/ @version\s+)\S+/, `$1${manifest.version}`);
@@ -39,8 +43,10 @@ function buildExtension(name, editManifest) {
   cpSync(join(root, 'extension'), out, {recursive: true});
   cpSync(join(root, 'node_modules/extpay/dist/ExtPay.js'), join(out, 'ExtPay.js'));
   mkdirSync(join(out, 'fonts'), {recursive: true});
-  writeFileSync(join(out, 'fonts/ComicNeue-Bold.ttf'), Buffer.from(font, 'base64'));
-  writeFileSync(join(out, 'fonts/OFL.txt'), license.replace(/^\/\*|\*\/$/g, '').trim() + '\n');
+  for (const f of fonts) {
+    writeFileSync(join(out, 'fonts', f.file), f.data);
+    writeFileSync(join(out, 'fonts', f.licence), f.text);
+  }
   writeFileSync(join(out, 'translator.js'), contentScript);
   writeFileSync(join(out, 'manifest.json'), JSON.stringify(editManifest(structuredClone(manifest)), null, 2));
   return out;
