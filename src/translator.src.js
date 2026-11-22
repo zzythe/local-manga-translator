@@ -308,7 +308,7 @@
    * there. Lines run across the block (horizontal writing) or down it (vertical), whichever makes
    * them longer.
    */
-  function splitMisaligned(cluster, typical) {
+  function linesOf(cluster) {
     const linesOn = vertical => {
       const lo = g => vertical ? g.x : g.y, hi = g => vertical ? g.x + g.width : g.y + g.height;
       const sorted = cluster.slice().sort((a, b) => lo(a) - lo(b)), lines = [];
@@ -325,16 +325,92 @@
     };
     const rows = linesOn(false), columns = linesOn(true);
     const mean = lines => lines.reduce((a, l) => a + l.long, 0) / lines.length;
-    const lines = mean(columns) > mean(rows) ? columns : rows;
-    if (lines.length < 2) return [cluster];
+    return mean(columns) > mean(rows) ? {lines: columns, vertical: true} : {lines: rows, vertical: false};
+  }
+
+  // Two stretches of a line are lined up when they share a start, a middle or an end.
+  const lined = (a0, a1, b0, b1, typical) => Math.min(Math.abs(a0 - b0), Math.abs(a1 - b1), Math.abs((a0 + a1) - (b0 + b1)) / 2) <= typical * 0.8;
+
+  function splitMisaligned(cluster, typical) {
+    const {lines, vertical} = linesOf(cluster);
+    if (lines.length < 2) return splitBeside(cluster, typical);
+    // A line's extent without specks, and its middle.
+    const real = g => Math.max(g.width, g.height) >= typical * 0.5;
+    const centreOf = l => {
+      const own = l.glyphs.filter(real);
+      if (!own.length) return null;
+      const b = union(own);
+      return vertical ? b.y + b.height / 2 : b.x + b.width / 2;
+    };
     const pieces = [[...lines[0].glyphs]];
+    let run = [lines[0]];
     for (let k = 1; k < lines.length; k++) {
       const a = lines[k - 1], b = lines[k], gap = b.lo - a.hi;
-      const aligned = Math.min(Math.abs(a.start - b.start), Math.abs(a.end - b.end), Math.abs((a.start + a.end) - (b.start + b.end)) / 2) <= typical * 0.8;
-      if (gap >= typical * 0.5 && !aligned && b.glyphs.length >= 2 && pieces[pieces.length - 1].length >= 2) pieces.push([...b.glyphs]);
-      else pieces[pieces.length - 1].push(...b.glyphs);
+      const aligned = lined(a.start, a.end, b.start, b.end, typical);
+      // Lines of one bubble centred tightly on one middle, then a line well off it after a wider
+      // gap than theirs: the next bubble of a chain, even if a line end happens to line up.
+      const centres = run.filter(l => l.hi - l.lo >= typical * 0.5).map(centreOf).filter(c => c !== null);
+      const mid = centres.length ? centres.reduce((s, c) => s + c, 0) / centres.length : 0;
+      const tight = centres.length >= 2 && centres.every(c => Math.abs(c - mid) <= typical * 0.25);
+      const leading = Math.max(0, ...run.slice(1).map((l, j) => l.lo - run[j].hi));
+      const cb = centreOf(b);
+      const offCentre = tight && cb !== null && Math.abs(cb - mid) > typical * 0.6 && gap >= leading * 1.5;
+      if (gap >= typical * 0.5 && ((!aligned && b.glyphs.length >= 2) || (offCentre && b.glyphs.filter(real).length >= 2)) && pieces[pieces.length - 1].length >= 2) {
+        pieces.push([...b.glyphs]); run = [b];
+      } else { pieces[pieces.length - 1].push(...b.glyphs); run.push(b); }
     }
-    return pieces;
+    return pieces.flatMap(piece => splitBeside(piece, typical));
+  }
+
+  /**
+   * Bubbles chained side by side: one line runs on from the first bubble into the second, and
+   * the second's other lines line up with only its own part. Cut the cluster across the gap in
+   * that line where everything on one side lines up and the whole line does not.
+   */
+  function splitBeside(cluster, typical) {
+    const {lines, vertical} = linesOf(cluster);
+    if (lines.length < 2) return [cluster];
+    const along = g => vertical ? [g.y, g.y + g.height] : [g.x, g.x + g.width];
+    const span = glyphs => [Math.min(...glyphs.map(g => along(g)[0])), Math.max(...glyphs.map(g => along(g)[1]))];
+    for (const line of lines) {
+      const glyphs = line.glyphs.slice().sort((a, b) => along(a)[0] - along(b)[0]);
+      let end = along(glyphs[0])[1];
+      for (let k = 1; k < glyphs.length; k++) {
+        const [start, stop] = along(glyphs[k]);
+        if (start - end >= typical * 0.4) {
+          const cut = (end + start) / 2, side = g => (along(g)[0] + along(g)[1]) / 2 < cut;
+          const before = cluster.filter(side), after = cluster.filter(g => !side(g));
+          // Specks and tail marks (a bubble's tail, a dot of tone) are not lines of lettering.
+          const real = g => Math.max(g.width, g.height) >= typical * 0.5;
+          const others = lines.filter(l => l !== line && l.hi - l.lo >= typical * 0.5)
+            .map(l => ({...l, glyphs: l.glyphs.filter(real)})).filter(l => l.glyphs.length);
+          // Every other line wholly on one side of the cut, and some on each... or on one side,
+          // lined up with that side's part of the cut line but not with the whole of it.
+          const clean = others.every(l => l.glyphs.every(side) || l.glyphs.every(g => !side(g)));
+          const whole = span(line.glyphs);
+          // Bubble lettering is centred: the other lines are centred on their side's part of the
+          // cut line, not on the whole of it, and do not reach its far end either.
+          const fits = others.length && others.every(l => {
+            const first = l.glyphs.every(side), own = span(line.glyphs.filter(g => side(g) === first));
+            const [s0, s1] = span(l.glyphs);
+            const centred = Math.abs((s0 + s1) - (own[0] + own[1])) / 2 <= typical * 0.5;
+            const offWhole = Math.abs((s0 + s1) - (whole[0] + whole[1])) / 2 > typical && (first ? Math.abs(s1 - whole[1]) : Math.abs(s0 - whole[0])) > typical;
+            return centred && offWhole;
+          });
+          if (clean && fits && before.length >= 2 && after.length >= 2) {
+            // A speck goes with the side whose lettering it is nearest.
+            const sides = [before.filter(real), after.filter(real)];
+            if (!sides[0].length || !sides[1].length) return [before, after];
+            const boxes = sides.map(union), pieces = sides.map(p => p.slice());
+            const away = (b, g) => Math.max(0, b.x - g.x - g.width, g.x - b.x - b.width) + Math.max(0, b.y - g.y - g.height, g.y - b.y - b.height);
+            for (const g of cluster) if (!real(g)) pieces[away(boxes[0], g) <= away(boxes[1], g) ? 0 : 1].push(g);
+            return pieces;
+          }
+        }
+        end = Math.max(end, stop);
+      }
+    }
+    return [cluster];
   }
 
   function findBubbleText(rgba, width, height, opts = {}) {
@@ -386,8 +462,26 @@
         edge: minX === 0 || minY === 0 || maxX === width - 1 || maxY === height - 1});
     }
 
-    // 2. Ink components (glyph candidates), each assigned to the paper region around it.
+    // 2. Ink components (glyph candidates), each assigned to the paper region around it. Ink does
+    // not join across a panel's edge (its border line, the gutter): a letter touching them where
+    // the border cuts through its bubble is still a letter.
     const seen = new Uint8Array(count), maxGlyphW = Math.max(80, width * 0.09), maxGlyphH = Math.max(80, height * 0.09);
+    let inPanel = null;
+    if (opts.panels && opts.panels.length) {
+      inPanel = new Uint8Array(count);
+      const EDGE = 3;
+      for (const p of opts.panels) {
+        const x0 = clamp(Math.round(p.x), 0, width), x1 = clamp(Math.round(p.x + p.width), 0, width);
+        const y0 = clamp(Math.round(p.y), 0, height), y1 = clamp(Math.round(p.y + p.height), 0, height);
+        for (let y = y0; y < y1; y++) {
+          const band = y < y0 + EDGE || y >= y1 - EDGE;
+          inPanel.fill(band ? 2 : 1, y * width + x0, y * width + x1);
+          if (!band) { inPanel.fill(2, y * width + x0, y * width + Math.min(x1, x0 + EDGE)); inPanel.fill(2, y * width + Math.max(x0, x1 - EDGE), y * width + x1); }
+        }
+      }
+    }
+    const peeled = new Uint8Array(count);
+    const joins = (i, j) => cls[j] === INK && (!inPanel || inPanel[i] === inPanel[j]);
     const neighbours = new Map();
     const touch = (j, step) => {
       // Anti-aliased edge pixels sit between ink and paper; look one pixel further past them.
@@ -402,24 +496,72 @@
       while (head < tail) {
         const i = queue[head++], y = (i / width) | 0, x = i - y * width;
         if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
-        if (x > 0) { const j = i - 1; if (cls[j] === INK) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else touch(j, x > 1 ? -1 : 0); }
-        if (x < width - 1) { const j = i + 1; if (cls[j] === INK) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else touch(j, x < width - 2 ? 1 : 0); }
-        if (y > 0) { const j = i - width; if (cls[j] === INK) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else touch(j, -width); }
-        if (y < height - 1) { const j = i + width; if (cls[j] === INK) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else touch(j, width); }
+        if (x > 0) { const j = i - 1; if (joins(i, j)) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else if (cls[j] !== INK) touch(j, x > 1 ? -1 : 0); }
+        if (x < width - 1) { const j = i + 1; if (joins(i, j)) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else if (cls[j] !== INK) touch(j, x < width - 2 ? 1 : 0); }
+        if (y > 0) { const j = i - width; if (joins(i, j)) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else if (cls[j] !== INK) touch(j, -width); }
+        if (y < height - 1) { const j = i + width; if (joins(i, j)) { if (!seen[j]) { seen[j] = 1; queue[tail++] = j; } } else if (cls[j] !== INK) touch(j, width); }
       }
       const w = maxX - minX + 1, h = maxY - minY + 1;
-      if (tail < 3 || tail > 4000 || w > maxGlyphW || h > maxGlyphH) continue;
+      if (tail < 3) continue;
+      if (tail > 4000 || w > maxGlyphW || h > maxGlyphH) {
+        // A letter at the very edge of its bubble can touch the artwork beyond through a few
+        // anti-aliased pixels. Its dark core, apart from them and mostly ringed by paper, is
+        // still a letter.
+        if (neighbours.size) peel(queue.slice(0, tail));
+        continue;
+      }
       let best = 0, bestCount = 0;
       for (const [label, n] of neighbours) if (n > bestCount) { best = label; bestCount = n; }
-      const space = spaces[best];
-      if (!space || space.area < 450 || w > space.width * 0.7 || h > space.height * 0.7) continue;
+      addGlyph(best, minX, minY, w, h, tail);
+    }
+
+    function addGlyph(best, minX, minY, w, h, area) {
+      const space = spaces[best], maxX = minX + w - 1, maxY = minY + h - 1;
+      if (!space || space.area < 450 || w > space.width * 0.7 || h > space.height * 0.7) return;
       // A thin strip of ink along a panel's edge is the panel's artwork showing between the border
       // and a bubble that runs into it, not lettering.
       const panel = opts.panels && panelAt(opts.panels, (minX + maxX) / 2, (minY + maxY) / 2);
       const side = panel && (minX <= panel.x + 1 || maxX >= panel.x + panel.width - 2);
       const end = panel && (minY <= panel.y + 1 || maxY >= panel.y + panel.height - 2);
-      if ((side && end) || (side && h >= w * 2) || (end && w >= h * 2)) continue;
-      space.glyphs.push({x: minX, y: minY, width: w, height: h, area: tail});
+      if ((side && end) || (side && h >= w * 2) || (end && w >= h * 2)) return;
+      space.glyphs.push({x: minX, y: minY, width: w, height: h, area});
+    }
+
+    function peel(members) {
+      const STRICT = Math.min(inkLevel - 40, 110), core = i => lum[i] < STRICT;
+      const stack = [], own = [];
+      for (const p of members) {
+        if (!core(p) || peeled[p]) continue;
+        peeled[p] = 1; stack.push(p); own.length = 0;
+        let minX = width, minY = height, maxX = 0, maxY = 0, edge = 0, papered = 0;
+        const papers = new Map();
+        while (stack.length) {
+          const i = stack.pop(), y = (i / width) | 0, x = i - y * width;
+          own.push(i);
+          if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+          let boundary = false, paperHere = 0;
+          for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+            const xx = x + dx, yy = y + dy;
+            if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
+            const j = yy * width + xx;
+            if (core(j) && cls[j] === INK && joins(i, j)) { if (!peeled[j]) { peeled[j] = 1; stack.push(j); } continue; }
+            boundary = true;
+            // Paper within three pixels this way, past the anti-aliased edge.
+            for (let s = 1; s <= 3 && !paperHere; s++) {
+              const sx = x + dx * s, sy = y + dy * s;
+              if (sx < 0 || sy < 0 || sx >= width || sy >= height) break;
+              const label = labels[sy * width + sx];
+              if (label) { paperHere = label; papers.set(label, (papers.get(label) || 0) + 1); }
+            }
+          }
+          if (boundary) { edge++; if (paperHere) papered++; }
+        }
+        const w = maxX - minX + 1, h = maxY - minY + 1;
+        if (own.length < 20 || own.length > 4000 || Math.min(w, h) < 3 || Math.max(w, h) > Math.min(w, h) * 4 || w > maxGlyphW / 2 || h > maxGlyphH / 2 || papered < edge * 0.9) continue;
+        let best = 0, bestCount = 0;
+        for (const [label, n] of papers) if (n > bestCount) { best = label; bestCount = n; }
+        addGlyph(best, minX, minY, w, h, own.length);
+      }
     }
 
     // 3. Group glyphs within each paper region into text blocks: the lines of one speech. One
@@ -520,10 +662,13 @@
     const lettering = i => glyphBox[i] === id || sat[i] <= 18;
     let masked = 0;
     for (let yy = 0; yy < eh; yy++) for (let xx = 0; xx < ew; xx++) {
-      if (!(xx > rowMin[yy] && xx < rowMax[yy] && yy > colMin[xx] && yy < colMax[xx]) || !own(ex + xx, ey + yy)) continue;
       const k = yy * ew + xx, i = (ey + yy) * width + ex + xx;
+      const inRow = xx > rowMin[yy] && xx < rowMax[yy], inColumn = yy > colMin[xx] && yy < colMax[xx];
+      // A letter's own box needs paper on both sides one way only: a letter can run into the
+      // bubble's edge.
+      if (!(glyphBox[i] === id ? inRow || inColumn : inRow && inColumn) || !own(ex + xx, ey + yy)) continue;
       inside[k] = 1;
-      if (labels[i] !== id && lettering(i)) { mask[k] = 1; masked++; }
+      if (labels[i] !== id && lettering(i)) { mask[k] = 1; if (inRow && inColumn) masked++; }
     }
     if (masked < 8) return null;
 
@@ -735,8 +880,26 @@
     if (info.script === 'hangul' && !SCRIPT.hangul.test(text)) return '';
     // Vertical text prints … as a column of dots, which the model often reads as a colon.
     text = text.replace(/[︙︰⋮]/gu, '…');
-    if (SCRIPT.han.test(text) || SCRIPT.kana.test(text)) text = text.replace(/[：:]+/gu, '…');
-    return text;
+    if (SCRIPT.han.test(text) || SCRIPT.kana.test(text)) {
+      text = text.replace(/[：:]+/gu, '…');
+      // CJK lettering never opens with closing marks: these are the end of a neighbouring
+      // bubble's line caught at the edge of the crop.
+      text = text.replace(/^[\s!?！？'’"”」』）)、。,.]+/u, '');
+    }
+    // Lines the model kept apart are one text: joined directly in CJK, with a space otherwise.
+    return text.replace(/\s*\n\s*/g, (_, at) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text[at - 1] || '') ? '' : ' ');
+  }
+
+  /**
+   * The model's translation as it is lettered: one text, even when the model broke it into lines
+   * (and mid-word: "aura\n's"); no full stop after a sound effect, which is not a sentence; and no
+   * comma or colon left dangling at the end unless the original runs on (ends in 、 or a comma).
+   */
+  function cleanTranslation(text, original, sfx) {
+    let out = String(text).replace(/\s*\n\s*(?=['’,.!?…])/g, '').replace(/\s*\n\s*/g, ' ').trim();
+    if (sfx) out = out.replace(/(?<![.…])\.$/, '');
+    if (!/[、,，;；:：]\s*$/.test(String(original || ''))) out = out.replace(/\s*[,;:，、]$/, '');
+    return out;
   }
 
   // Text found on the artwork that is not bubble lettering already read. Model boxes are rough,
@@ -1066,10 +1229,16 @@
     }
     // Far bigger than a glyph: artwork, or a letter joined to some (cut back to the text below).
     const oversized = p => glyph && Math.max(p.x1 - p.x0, p.y1 - p.y0) + 1 > glyph * 2.2 && p.pixels.length > 30;
+    // Off the text box, only marks in the lettering's own colour: a glow or highlight of the art
+    // beside it (faint, or near the colour but not it) stays.
+    const inBox = p => p.x0 <= box.x + box.width && p.x1 >= box.x && p.y0 <= box.y + box.height && p.y1 >= box.y;
     const belongs = p => {
-      if (p.core > 0) return true;
-      const m = inkOf && meanOf(p);
-      return !m || Math.abs(m[0] - inkOf[0]) + Math.abs(m[1] - inkOf[1]) + Math.abs(m[2] - inkOf[2]) <= 110;
+      if (p.core > 0 || !inkOf) return true;
+      const m = meanOf(p);
+      if (!m) return inBox(p);
+      // Small marks (dots, a dakuten) blur into the background and drift further from its colour.
+      const small = glyph && Math.max(p.x1 - p.x0, p.y1 - p.y0) + 1 <= glyph * 0.5;
+      return Math.abs(m[0] - inkOf[0]) + Math.abs(m[1] - inkOf[1]) + Math.abs(m[2] - inkOf[2]) <= (!inBox(p) ? 70 : small ? 110 : 80);
     };
     const accepted = parts.filter(p => p.inside && belongs(p));
     for (let grew = true; grew;) {
@@ -2072,8 +2241,7 @@
           const r = chunk[item.id];
           if (r && !isUntranslated(r.original, item.text, s.target)) {
             r.sfx = item.sfx === true;
-            // A sound effect is not a sentence: no full stop after it.
-            r.translation = String(item.text).trim().replace(r.sfx ? /(?<![.…])\.$/ : /$^/, '');
+            r.translation = cleanTranslation(item.text, r.original, r.sfx);
           }
         }
       };
@@ -2219,7 +2387,7 @@
   }
 
   if (typeof document === 'undefined') {
-    if (typeof module !== 'undefined') module.exports = {tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, shapeSpan, dedupe,
+    if (typeof module !== 'undefined') module.exports = {tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
       paintText, fitText, drawText, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};

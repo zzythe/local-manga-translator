@@ -491,3 +491,118 @@ test('white lettering in a black rim on busy artwork is found by its outline', (
   for (let y = 20; y < 120; y++) for (let x = 10; x < 30; x++) if (plan.mask[y * 240 + x]) splash++;
   assert.equal(splash, 0, 'the white splashes are left alone');
 });
+
+test('bubbles chained side by side are split where one line runs from one into the other', () => {
+  // Left bubble: one line. Right bubble: three centred lines, its first on the same row as the
+  // left bubble's line.
+  const img = page(560, 260, [90, 60, 90]);
+  ellipse(img, 150, 70, 130, 40, [210, 215, 225]);
+  ellipse(img, 400, 110, 120, 85, [210, 215, 225]);
+  glyphs(img, 40, 60, 11, 1);       // x 40..216
+  glyphs(img, 336, 60, 7, 1);       // x 336..444, the right bubble's first line
+  glyphs(img, 336, 90, 7, 1);
+  glyphs(img, 352, 120, 5, 1);
+  const blocks = t.findBubbleText(img.data, img.width, img.height, {paper: 180, tint: [210, 215, 225]});
+  assert.equal(blocks.length, 2, JSON.stringify(blocks.map(b => [b.x, b.y, b.width, b.height])));
+  // One bubble with a space in its first line and the next lines centred under the whole line
+  // stays one block.
+  const one = page(560, 260, [90, 60, 90]);
+  ellipse(one, 280, 120, 220, 90, [210, 215, 225]);
+  glyphs(one, 120, 70, 5, 1);
+  glyphs(one, 216, 70, 10, 1);      // a word gap at 196..216
+  glyphs(one, 176, 100, 9, 1);
+  glyphs(one, 208, 130, 5, 1);
+  assert.equal(t.findBubbleText(one.data, one.width, one.height, {paper: 180, tint: [210, 215, 225]}).length, 1);
+});
+
+test('a long mark under the text (a window bar through a translucent bubble) does not join the block', () => {
+  const img = page(400, 300, [90, 110, 100]);
+  ellipse(img, 200, 110, 120, 70, [225, 235, 220]);
+  for (let y = 90; y < 280; y++) for (let x = 0; x < 400; x++) if (y > 160 && ((x - 200) / 120) ** 2 + ((y - 110) / 70) ** 2 > 1) set(img, x, y, [235, 240, 225]);
+  glyphs(img, 140, 80, 7, 2);
+  for (let y = 132; y < 200; y++) for (let x = 196; x < 204; x++) set(img, x, y, [70, 80, 70]);
+  const blocks = t.findBubbleText(img.data, img.width, img.height, {paper: 200, tint: [225, 235, 220]});
+  assert.ok(blocks.length >= 1);
+  const b = blocks.find(k => k.x < 160 && k.x + k.width > 230);
+  assert.ok(b && b.y + b.height < 140, JSON.stringify(blocks.map(k => [k.x, k.y, k.width, k.height])));
+});
+
+test('cleanReading joins lines the model kept apart', () => {
+  assert.equal(t.cleanReading('ごめん\nもうすぐリアが\n切れそう', 40, t.languageInfo('Japanese')), 'ごめんもうすぐリアが切れそう');
+  assert.equal(t.cleanReading('Hello\nthere', 40, t.languageInfo('English')), 'Hello there');
+});
+
+test('specks and a bubble tail under chained side-by-side bubbles do not stop the split', () => {
+  const img = page(560, 260, [90, 60, 90]);
+  ellipse(img, 150, 70, 130, 40, [210, 215, 225]);
+  ellipse(img, 400, 110, 120, 85, [210, 215, 225]);
+  glyphs(img, 40, 60, 11, 1);
+  glyphs(img, 336, 60, 7, 1);
+  glyphs(img, 336, 90, 7, 1);
+  glyphs(img, 352, 120, 5, 1);
+  // A one-pixel speck left of the second line, and two small tail marks under the lettering.
+  for (let x = 300; x < 306; x++) set(img, x, 96, [40, 30, 40]);
+  for (let y = 160; y < 164; y++) for (let x = 380; x < 386; x++) set(img, x, y, [40, 30, 40]);
+  for (let y = 163; y < 167; y++) for (let x = 387; x < 393; x++) set(img, x, y, [40, 30, 40]);
+  const blocks = t.findBubbleText(img.data, img.width, img.height, {paper: 180, tint: [210, 215, 225]});
+  assert.equal(blocks.length, 2, JSON.stringify(blocks.map(b => [b.x, b.y, b.width, b.height])));
+});
+
+test('a reading does not start with the end of a neighbouring bubble line', () => {
+  const ja = {script: 'cjk'};
+  assert.equal(t.cleanReading("!'くっ！そんなに", 8, ja), 'くっ！そんなに');
+  assert.equal(t.cleanReading('…これで', 3, ja), '…これで', 'a leading ellipsis is lettering');
+});
+
+test('chained bubbles stacked with one end lining up by chance are still split', () => {
+  // Four lines centred on one middle, then two lines centred well to the left of it after a
+  // wider gap; the last line of the first bubble and the first of the second end together.
+  const img = page(500, 300, [90, 110, 150]);
+  ellipse(img, 234, 90, 150, 75, [250, 250, 250]);
+  ellipse(img, 210, 175, 110, 45, [250, 250, 250]);
+  glyphs(img, 180, 50, 7, 1);       // x 180..288, centre 234
+  glyphs(img, 188, 72, 6, 1);       // x 188..280, centre 234
+  glyphs(img, 164, 94, 9, 1);       // x 164..304, centre 234
+  glyphs(img, 188, 116, 6, 1);      // x 188..280, centre 234
+  glyphs(img, 156, 148, 8, 1);      // x 156..280: ends with the line above, centre 218
+  glyphs(img, 172, 170, 6, 1);      // x 172..264, centre 218
+  const blocks = t.findBubbleText(img.data, img.width, img.height);
+  assert.equal(blocks.length, 2, JSON.stringify(blocks.map(b => [b.x, b.y, b.width, b.height])));
+});
+
+test('a letter at the edge of a borderless bubble, touching the dark art through its anti-aliasing, is kept', () => {
+  const img = page(400, 300, [55, 50, 60]);
+  ellipse(img, 200, 150, 150, 60, [250, 250, 250]);
+  glyphs(img, 238, 142, 7, 1);   // the last glyph is x 334..346, the bubble's edge about x 348
+  for (let y = 143; y < 146; y++) for (let x = 346; x < 352; x++) set(img, x, y, [125, 120, 130]);
+  const blocks = t.findBubbleText(img.data, img.width, img.height);
+  assert.equal(blocks.length, 1);
+  assert.ok(blocks[0].x + blocks[0].width >= 345, `last glyph kept (${blocks[0].x}+${blocks[0].width})`);
+  const plan = blocks[0].erase, part = crop(img, plan);
+  t.applyErase(part, plan);
+  for (const [x, y] of [[335, 150], [344, 150], [340, 143]]) assert.ok(lumAt(part, (y - plan.y) * plan.width + x - plan.x) > 220, `glyph erased at ${x},${y}`);
+});
+
+test('a splash of art near the lettering colour, half inside the text box, is not erased with it', () => {
+  const img = page(240, 120, [40, 90, 80]);
+  glyphs(img, 100, 50, 5, 1, [221, 170, 61]);
+  // A paler yellow splash left of the lettering, overlapping the box's left part, plus a faint
+  // glow below the line that is not lettering.
+  ellipse(img, 76, 58, 14, 12, [190, 183, 119]);
+  ellipse(img, 120, 79, 24, 4, [95, 135, 110]);
+  const plan = t.planLooseErase(img, {x: 80, y: 46, width: 100, height: 24});
+  assert.ok(plan);
+  assert.ok(plan.mask[58 * 240 + 101], 'lettering cleaned');
+  assert.ok(!plan.mask[58 * 240 + 70] && !plan.mask[58 * 240 + 84], 'the splash is kept');
+  assert.ok(!plan.mask[80 * 240 + 120], 'the glow is kept');
+  const [r, g] = [parseInt(plan.color.slice(1, 3), 16), parseInt(plan.color.slice(3, 5), 16)];
+  assert.ok(r - g > 30, `lettering colour is the orange, not the splash (${plan.color})`);
+});
+
+test('cleanTranslation: one line, no full stop after a sound effect, no dangling comma', () => {
+  assert.equal(t.cleanTranslation('My aura\n’s weak', 'オーラ', false), 'My aura’s weak');
+  assert.equal(t.cleanTranslation('SPLASH.', 'ざぶん', true), 'SPLASH');
+  assert.equal(t.cleanTranslation('Wait...', 'まって…', true), 'Wait...');
+  assert.equal(t.cleanTranslation('Be quiet,', 'おとなしく して', false), 'Be quiet');
+  assert.equal(t.cleanTranslation('If we hurry,', '急げば、', false), 'If we hurry,', 'the original runs on');
+});
