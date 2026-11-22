@@ -154,3 +154,13 @@ $('login').onclick = () => ask({type: 'login'});
 $('manage').onclick = () => ask({type: 'manage'});
 // Coming back from the payment tab: check again right away.
 addEventListener('focus', () => ask({type: 'refresh-pro'}).then(renderPlan).catch(() => {}));
+
+/* ---------- Firefox: website access is granted separately ---------- */
+
+const ALL_SITES = {origins: ['<all_urls>']};
+async function checkAccess() {
+  try { $('access').hidden = await chrome.permissions.contains(ALL_SITES); } catch { $('access').hidden = true; }
+}
+// permissions.request must run directly inside the click.
+$('access-grant').onclick = () => chrome.permissions.request(ALL_SITES).then(checkAccess, checkAccess);
+checkAccess();

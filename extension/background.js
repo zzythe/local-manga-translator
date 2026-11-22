@@ -210,6 +210,8 @@ async function openOn(tab) {
     await inject(tab.id);
     await chrome.tabs.sendMessage(tab.id, {type: 'open'});
   } catch {
+    // Firefox: website access hasn't been allowed yet; the setup page asks for it.
+    if (!(await chrome.permissions.contains({origins: ['<all_urls>']}).catch(() => true))) return openWelcome();
     // Browser pages, the extension stores and PDF viewers don't allow extensions.
     chrome.action.setBadgeBackgroundColor({color: '#e5306b', tabId: tab.id});
     chrome.action.setBadgeText({text: '✕', tabId: tab.id});

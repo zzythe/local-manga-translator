@@ -26,7 +26,7 @@ const images = createServer((req, res) => {
   refererSeen = req.headers.referer || '';
   if (!refererSeen.startsWith('http://127.0.0.1:8765/')) { res.statusCode = 403; return res.end('hotlinking not allowed'); }
   res.setHeader('content-type', 'image/jpeg');
-  res.end(readFileSync(join(root, 'extension/demo/ja_E01P02.jpg')));
+  res.end(readFileSync(join(root, 'extension/demo/ja_E36P03.jpg')));
 }).listen(8766);
 
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {

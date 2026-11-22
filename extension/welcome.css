@@ -78,6 +78,7 @@ kbd { font: 600 13px/1 ui-monospace, Consolas, monospace; border: 1.5px solid va
 .progress { margin-top: 10px; }
 
 .card { margin-top: 22px; padding: 20px 22px; }
+.access { margin: 0 0 18px; border-color: var(--accent); }
 .plan .meter-line { font-size: 17px; margin-top: 10px; }
 .plan .bar i { background: var(--ink); }
 .plan.low .bar i { background: var(--accent); }
