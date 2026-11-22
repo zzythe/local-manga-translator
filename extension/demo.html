@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page · Local Manga Translator</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="welcome.css">
+  <style>
+    .reader { max-width: 900px; margin: 0 auto; padding: 0 20px 120px; display: grid; gap: 18px; }
+    .reader img { width: 100%; height: auto; display: block; border: 2.5px solid var(--ink); border-radius: 6px; background: #222; }
+    .note { max-width: 900px; margin: 0 auto; padding: 28px 20px 18px; }
+    .credit { font-size: 13px; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="note">
+    <h1>Try it here</h1>
+    <p>These are pages of <em>Pepper&amp;Carrot</em> in Japanese. The translator has already started: watch the speech bubble in the bottom-right corner. The first page takes longest while the model loads.</p>
+    <p class="small muted">Use the ⇄ button to compare with the original, or click the round mark on a page. The sliders button changes the languages.</p>
+  </div>
+  <main class="reader">
+    <img src="demo/ja_E01P01.jpg" alt="Comic page 1 in Japanese" width="1200" height="1660">
+    <img src="demo/ja_E01P02.jpg" alt="Comic page 2 in Japanese" width="1200" height="1660">
+    <p class="credit"><a href="https://www.peppercarrot.com/ja/webcomic/ep01_Potion-of-Flight.html" target="_blank" rel="noopener">Pepper&amp;Carrot, episode 1</a> by David Revoy, Japanese translation by the Pepper&amp;Carrot contributors. Licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+  </main>
+  <script src="demo.js"></script>
+  <script src="translator.js"></script>
+</body>
+</html>

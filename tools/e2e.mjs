@@ -1,0 +1,119 @@
+// End-to-end test of dist/chrome in Microsoft Edge against the local Ollama.
+//   node tools/e2e.mjs            (Ollama must be running with a qwen3-vl model)
+// Screenshots go to tools/e2e-out/.
+import {chromium} from 'playwright-core';
+import {mkdtempSync, mkdirSync, readFileSync} from 'node:fs';
+import {createServer} from 'node:http';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+const root = process.cwd();
+const ext = join(root, 'dist/chrome');
+const out = join(root, 'tools/e2e-out');
+mkdirSync(out, {recursive: true});
+const results = [];
+const check = (name, ok, detail = '') => { results.push({name, ok, detail}); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' - ' + detail : ''}`); };
+
+// A "manga site" on :8765 whose images live on another origin (:8766). The image server
+// refuses requests without the reader page as referrer and sends no CORS headers.
+const site = createServer((req, res) => {
+  res.setHeader('content-type', 'text/html');
+  res.end(`<!doctype html><title>Reader</title><body style="margin:0;background:#111">
+    <img src="http://localhost:8766/page.jpg" style="display:block;width:900px;margin:0 auto"></body>`);
+}).listen(8765);
+let refererSeen = '';
+const images = createServer((req, res) => {
+  refererSeen = req.headers.referer || '';
+  if (!refererSeen.startsWith('http://127.0.0.1:8765/')) { res.statusCode = 403; return res.end('hotlinking not allowed'); }
+  res.setHeader('content-type', 'image/jpeg');
+  res.end(readFileSync(join(root, 'extension/demo/ja_E01P02.jpg')));
+}).listen(8766);
+
+const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
+  channel: 'msedge', headless: false, viewport: {width: 1280, height: 900},
+  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
+});
+let [sw] = ctx.serviceWorkers();
+if (!sw) sw = await ctx.waitForEvent('serviceworker');
+const id = new URL(sw.url()).host;
+
+try {
+  // 1. Setup page opens on install and detects Ollama + model.
+  let welcome = ctx.pages().find(p => p.url().includes('welcome.html'));
+  if (!welcome) welcome = await ctx.waitForEvent('page', {predicate: p => p.url().includes('welcome.html'), timeout: 10000}).catch(() => null);
+  check('setup page opens on install', !!welcome);
+  if (welcome) {
+    await welcome.waitForFunction(() => document.getElementById('step-model').dataset.state === 'done', null, {timeout: 20000}).catch(() => {});
+    const states = await welcome.evaluate(() => ['step-engine', 'step-model', 'step-try'].map(id => document.getElementById(id).dataset.state));
+    check('setup page detects Ollama and the model', states[0] === 'done' && states[1] === 'done', states.join(','));
+    const meter = await welcome.locator('.meter-line').innerText();
+    check('setup page shows the free meter', /30 of 30 free pages left today/.test(meter), meter);
+    await welcome.screenshot({path: join(out, 'welcome.png'), fullPage: true});
+  }
+
+  // 2. The sample page translates both pages.
+  const demo = await ctx.newPage();
+  const t0 = Date.now();
+  await demo.goto(`chrome-extension://${id}/demo.html`);
+  await demo.waitForFunction(() => [...document.querySelectorAll('.reader img')].filter(i => i.src.startsWith('blob:')).length >= 1, null, {timeout: 300000});
+  check('sample page 1 translated', true, `${((Date.now() - t0) / 1000).toFixed(0)} s including model load`);
+  await demo.screenshot({path: join(out, 'demo-first.png')});
+  await demo.waitForFunction(() => [...document.querySelectorAll('.reader img')].filter(i => i.src.startsWith('blob:')).length >= 2, null, {timeout: 300000});
+  check('sample page 2 translated', true, `${((Date.now() - t0) / 1000).toFixed(0)} s total`);
+  await demo.locator('.reader img').first().screenshot({path: join(out, 'demo-page1-translated.png')});
+  let plan = await sw.evaluate(() => plan());
+  check('meter counted 2 pages', plan.used === 2, JSON.stringify(plan));
+
+  // 3. A site with hotlink-protected images on another origin, opened like the toolbar button does.
+  const reader = await ctx.newPage();
+  await reader.goto('http://127.0.0.1:8765/chapter-1');
+  await reader.bringToFront();
+  await sw.evaluate(async () => { const [tab] = await chrome.tabs.query({url: 'http://127.0.0.1:8765/*'}); await openOn(tab); });
+  await reader.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 300000});
+  check('hotlink-protected cross-origin image translated', true, `referer sent: ${refererSeen}`);
+  await reader.screenshot({path: join(out, 'reader.png')});
+  plan = await sw.evaluate(() => plan());
+  check('meter counted 3 pages', plan.used === 3, JSON.stringify(plan));
+  const meterText = await reader.evaluate(() => document.querySelector('manga-translator') ? 'present' : 'missing');
+  check('translator control present on the site', meterText === 'present');
+
+  // 4. Reloading the tab shows the translated page again without counting it.
+  await reader.reload();
+  await reader.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 60000});
+  plan = await sw.evaluate(() => plan());
+  check('reload keeps the translation on and free', plan.used === 3, JSON.stringify(plan));
+
+  // 5. At the daily limit, new pages wait and the control says why.
+  await sw.evaluate(async () => {
+    const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await chrome.storage.local.set({usage: {day, count: CONFIG.freePagesPerDay}});
+  });
+  const limited = await ctx.newPage();
+  await limited.goto('http://127.0.0.1:8765/chapter-2');
+  // Same tab session flag isn't set in a new tab, so open it like the toolbar button.
+  await sw.evaluate(async () => { const [tab] = await chrome.tabs.query({url: 'http://127.0.0.1:8765/chapter-2'}); await openOn(tab); });
+  await limited.waitForTimeout(6000);
+  const blockedState = await limited.evaluate(() => ({src: document.images[0].src}));
+  check('limit reached: page left untranslated', !blockedState.src.startsWith('blob:'), blockedState.src.slice(0, 40));
+  await limited.screenshot({path: join(out, 'limit.png')});
+
+  // 6. Pro unlocks it straight away.
+  await sw.evaluate(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
+  await limited.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 300000}).then(
+    () => check('Pro unlocks the waiting page', true), () => check('Pro unlocks the waiting page', false));
+
+  // 7. Websites still can't use Ollama directly (the origin rule only covers the extension).
+  // Use an ordinary website origin: Ollama always trusts pages served from 127.0.0.1 itself.
+  await ctx.route('http://manga.example/**', route => route.fulfill({contentType: 'text/html', body: '<title>x</title>'}));
+  const outside = await ctx.newPage();
+  await outside.goto('http://manga.example/');
+  const status = await outside.evaluate(() => fetch('http://127.0.0.1:11434/api/tags').then(r => r.status, e => 'blocked: ' + e.message));
+  check('web pages still refused by Ollama', status !== 200, String(status));
+} catch (error) {
+  check('run completed', false, error.message);
+} finally {
+  await ctx.close(); site.close(); images.close();
+  const failed = results.filter(r => !r.ok).length;
+  console.log(`\n${results.length - failed}/${results.length} passed`);
+  process.exitCode = failed ? 1 : 0;
+}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 4 122 122">
+  <!-- Comic speech bubble: offset ink shadow, ink outline, paper fill, tail bottom-left -->
+  <g transform="translate(5 6)">
+    <path d="M22 10h72a18 18 0 0 1 18 18v42a18 18 0 0 1-18 18H52L28 110l4-22h-10A18 18 0 0 1 4 70V28A18 18 0 0 1 22 10z" fill="#1c1526"/>
+  </g>
+  <path d="M22 10h72a18 18 0 0 1 18 18v42a18 18 0 0 1-18 18H52L28 110l4-22h-10A18 18 0 0 1 4 70V28A18 18 0 0 1 22 10z" fill="#fffdfa" stroke="#1c1526" stroke-width="7" stroke-linejoin="round"/>
+  <!-- 文 fading into A -->
+  <text x="34" y="64" font-family="'Yu Gothic UI','Meiryo','Noto Sans CJK JP',sans-serif" font-weight="700" font-size="40" fill="#1c1526" stroke="#1c1526" stroke-width="2.2" text-anchor="middle">文</text>
+  <path d="M55 49h12m-5-6 6 6-6 6" fill="none" stroke="#e5306b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="86" y="66" font-family="'Comic Neue','Comic Sans MS',sans-serif" font-weight="700" font-size="46" fill="#e5306b" text-anchor="middle">A</text>
+</svg>

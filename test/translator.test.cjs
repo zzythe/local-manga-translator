@@ -1,4 +1,4 @@
-// node --test test/translator.test.js
+// node --test test/translator.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const t = require('../local-manga-translator.user.js');

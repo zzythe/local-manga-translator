@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Manga Translator
 // @namespace    local.image-translator
-// @version      3.1.0
+// @version      1.0.0
 // @description  Translates manga, manhua and manhwa pages in place with your local Ollama. Pick "Translate this page" from the extension menu, or turn it on for a site once.
 // @match        https://*/*
 // @match        http://*/*
@@ -1207,10 +1207,53 @@
    * 7. Browser: Ollama connection
    * ==================================================================================== */
 
+  // The same code runs as a browser extension (content script) and as a userscript.
+  const EXTENSION = typeof GM_xmlhttpRequest === 'undefined' && typeof chrome !== 'undefined' && !!chrome.runtime?.id;
+  // One copy per tab, even when the extension injects the file again.
+  if (EXTENSION) {
+    if (globalThis.__mangaTranslatorLoaded) return;
+    globalThis.__mangaTranslatorLoaded = true;
+  }
+
   const activeRequests = new Set();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+  function base64ToBlob(data, type) {
+    const binary = atob(data), bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], {type});
+  }
+
+  // Extension: the background worker makes the request, so page CORS rules and Ollama's origin
+  // check don't apply. Messages on the port keep the worker awake during long model calls.
+  function extensionRequest(options) {
+    return new Promise((resolve, reject) => {
+      const port = chrome.runtime.connect({name: 'request'});
+      let finished = false;
+      const ping = setInterval(() => { try { port.postMessage({type: 'ping'}); } catch {} }, 15000);
+      const end = () => { finished = true; clearInterval(ping); activeRequests.delete(handle); try { port.disconnect(); } catch {} };
+      const fail = (message, code) => { if (finished) return; end(); reject(Object.assign(new Error(message), {code})); };
+      const handle = {abort: () => { try { port.postMessage({type: 'abort'}); } catch {} fail('Stopped.', 'ABORT'); }};
+      port.onMessage.addListener(msg => {
+        if (finished) return;
+        if (msg.type === 'error') return fail(msg.message, msg.code);
+        if (msg.type !== 'done') return;
+        end();
+        resolve({status: msg.status, responseText: msg.text ?? '', response: msg.base64 != null ? base64ToBlob(msg.base64, msg.mime) : null});
+      });
+      port.onDisconnect.addListener(() => fail('Network request failed.', 'NETWORK'));
+      activeRequests.add(handle);
+      port.postMessage({type: 'start', method: options.method || 'GET', url: options.url, headers: options.headers || {},
+        data: options.data, responseType: options.responseType || 'text', timeout: options.timeout || 120000,
+        credentials: options.anonymous === false, referrer: options.headers?.Referer});
+    });
+  }
+
+  // Ask the background worker something (usage meter, payments, Ollama status).
+  const background = message => EXTENSION ? chrome.runtime.sendMessage(message) : Promise.resolve(null);
+
   function request(options) {
+    if (EXTENSION) return extensionRequest(options);
     return new Promise((resolve, reject) => {
       const fail = (message, code) => { activeRequests.delete(handle); reject(Object.assign(new Error(message), {code})); };
       const handle = GM_xmlhttpRequest({
@@ -1251,6 +1294,8 @@
   // Opens the ollama-launch: link registered by install-ollama-launcher.ps1. Browsers allow
   // this reliably only during a click, so the UI also calls it from click handlers.
   function launchOllama() {
+    // The extension can't start programs; Ollama starts with Windows/macOS after setup.
+    if (EXTENSION) return;
     if (Date.now() - lastLaunch < 15000) return;
     lastLaunch = Date.now();
     const link = document.createElement('a');
@@ -1279,8 +1324,23 @@
 
   const DEFAULTS = {source: 'Auto-detect', target: 'English', model: '', uppercase: true, sites: []};
 
+  // Settings storage. Extension storage is asynchronous, so a copy is loaded before anything starts.
+  let storedSettings = null;
+  const storeReady = EXTENSION
+    ? chrome.storage.local.get('settings').then(r => { storedSettings = r.settings || null; }, () => {})
+    : Promise.resolve();
+  if (EXTENSION) chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.settings) storedSettings = changes.settings.newValue || null;
+  });
+  const readSettings = () => EXTENSION ? storedSettings : GM_getValue('settings', null);
+  const writeSettings = value => {
+    if (!EXTENSION) return GM_setValue('settings', value);
+    storedSettings = JSON.parse(JSON.stringify(value));
+    chrome.storage.local.set({settings: storedSettings}).catch(() => {});
+  };
+
   function loadSettings() {
-    const saved = GM_getValue('settings', null) || {};
+    const saved = readSettings() || {};
     const s = {...DEFAULTS};
     for (const key of Object.keys(DEFAULTS)) if (saved[key] !== undefined) s[key] = saved[key];
     if (!s.model && saved.models?.ollama) s.model = saved.models.ollama; // from version 2
@@ -1294,7 +1354,7 @@
   function fetchBlob(url) {
     if (blobCache.has(url)) return blobCache.get(url);
     const promise = (async () => {
-      if (/^(data:|blob:)/.test(url)) return (await fetch(url)).blob();
+      if (/^(data:|blob:|chrome-extension:|moz-extension:)/.test(url)) return (await fetch(url)).blob();
       // Send the page as referrer and include cookies: many readers block hotlinked images.
       const response = await request({method: 'GET', url, responseType: 'blob', timeout: 45000, anonymous: false, headers: {Referer: location.href}});
       if (response.status !== 200) throw new Error(`The site refused the image download (${response.status}).`);
@@ -1430,6 +1490,20 @@
     .action:hover { filter: brightness(1.08); }
     .action[hidden] { display: none; }
 
+    /* Free plan meter: pages left today. */
+    .meter { display: flex; align-items: center; gap: 10px; padding: 0 16px 9px; font: 500 12px/1.3 system-ui, "Segoe UI", sans-serif; color: var(--muted); }
+    .meter[hidden] { display: none; }
+    .meter .gauge { flex: 1; min-width: 60px; height: 6px; border-radius: 3px; background: var(--wash); overflow: hidden; }
+    .meter .gauge i { display: block; height: 100%; background: var(--ink); transition: width .4s ease; }
+    .meter.low .gauge i { background: var(--accent); }
+    .meter .count { white-space: nowrap; }
+    .meter .count b { color: var(--ink); font-weight: 700; }
+    .pro { border: 0; background: none; padding: 0; color: var(--accent); font: 700 12px/1.3 system-ui, "Segoe UI", sans-serif;
+      text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+    .pro[hidden] { display: none; }
+    .panel .plan { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 500 13px system-ui, "Segoe UI", sans-serif; color: var(--muted); }
+    .panel .plan[hidden] { display: none; }
+
     .panel { border-top: 2px dashed var(--line); padding: 12px 16px 14px; display: grid; gap: 10px; width: 330px; max-width: 100%; }
     .panel[hidden] { display: none; }
     .field { display: grid; grid-template-columns: 6.5em 1fr; align-items: center; gap: 8px; }
@@ -1446,6 +1520,7 @@
     .mark.working { border-color: var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; cursor: default; box-shadow: none; }
     .mark.failed { background: var(--accent); color: #fff; }
     .mark.original { background: var(--ink); color: var(--paper); }
+    .mark.limited { background: var(--wash); color: var(--ink); }
     @keyframes spin { to { transform: rotate(1turn); } }
     @media (prefers-reduced-motion: reduce) { .mark.working { animation-duration: 3s; } .track i { transition: none; } }
     @media (max-width: 480px) { .bubble { right: 10px; left: 10px; bottom: 20px; } .bar { min-width: 0; } .panel { width: auto; } }
@@ -1464,7 +1539,12 @@
           <button class="icon" id="gear" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="panel">${icon('sliders')}</button>
           <button class="icon" id="close" title="Turn off and restore the page" aria-label="Turn off and restore the page">${icon('close')}</button>
         </div>
+        <div class="meter" id="meter" hidden>
+          <span class="count" id="meter-text"></span><span class="gauge"><i id="meter-fill"></i></span>
+          <button class="pro" id="pro" hidden>Get unlimited</button>
+        </div>
         <div class="panel" id="panel" hidden>
+          <div class="plan" id="plan" hidden><span id="plan-text"></span><button class="pro" id="plan-button"></button></div>
           <div class="field"><label for="source">From</label><select id="source">${SOURCE_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
           <div class="field"><label for="target">Into</label><select id="target">${TARGET_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
           <div class="field"><label for="model">Model</label><select id="model"></select></div>
@@ -1481,14 +1561,23 @@
   const ON_KEY = 'manga-translator-on';
   const remember = on => { try { if (on) sessionStorage.setItem(ON_KEY, '1'); else sessionStorage.removeItem(ON_KEY); } catch {} };
   const wanted = () => { try { if (sessionStorage.getItem(ON_KEY) === '1') return true; } catch {} return loadSettings().sites.includes(host); };
-  GM_registerMenuCommand('Translate this page', () => { if (controller) controller.show(); else controller = start(true); });
-  if (wanted()) controller = start(false);
+  const openTranslator = () => { if (controller) controller.show(); else controller = start(true); };
+  if (EXTENSION) {
+    // The toolbar button, right-click menu and shortcut send "open". Listen at once so a message
+    // sent right after injection isn't lost; act on it when settings have loaded.
+    chrome.runtime.onMessage.addListener((message, sender, reply) => {
+      if (message?.type === 'open') { storeReady.then(openTranslator); reply({ok: true}); }
+    });
+  } else {
+    GM_registerMenuCommand('Translate this page', openTranslator);
+  }
+  storeReady.then(() => { if (!controller && wanted()) controller = start(false); });
   // Back and forward can restore this page from the browser's memory without running the script.
   addEventListener('pageshow', event => { if (event.persisted && !controller && wanted()) controller = start(false); });
 
   function start(fromMenu) {
     const settings = loadSettings();
-    const save = () => GM_setValue('settings', settings);
+    const save = () => writeSettings(settings);
     remember(true);
     pageCache.purge();
     const pipeline = createPipeline(browserEnv);
@@ -1507,7 +1596,7 @@
     const say = (title, detail = '') => { $('title').textContent = title; $('detail').textContent = detail; };
     const progress = () => {
       const all = [...pages.values()].filter(p => p.status !== 'none');
-      const finished = all.filter(p => ['done', 'failed', 'empty'].includes(p.status)).length;
+      const finished = all.filter(p => ['done', 'failed', 'empty', 'limited'].includes(p.status)).length;
       $('track').hidden = !all.length || finished === all.length;
       $('progress').style.width = `${all.length ? Math.round(100 * finished / all.length) : 0}%`;
     };
@@ -1551,28 +1640,88 @@
 
     /* ---------- Ollama ---------- */
 
+    /* ---------- Free plan meter (extension) ---------- */
+
+    let plan = null, blocked = false;
+    function renderPlan() {
+      if (!EXTENSION || !plan) return;
+      const free = !plan.pro;
+      $('meter').hidden = !free;
+      $('plan').hidden = false;
+      if (free) {
+        const left = Math.max(0, plan.limit - plan.used);
+        $('meter-text').innerHTML = `<b>${left}</b> of ${plan.limit} free pages left today`;
+        $('meter-fill').style.width = `${Math.round(100 * left / plan.limit)}%`;
+        $('meter').classList.toggle('low', left <= Math.ceil(plan.limit / 6));
+        $('pro').hidden = false;
+        $('plan-text').textContent = `Free plan: ${plan.limit} pages a day`;
+        $('plan-button').textContent = 'Get unlimited';
+      } else {
+        $('plan-text').textContent = 'Pro: unlimited pages';
+        $('plan-button').textContent = 'Manage';
+      }
+    }
+    async function refreshPlan() {
+      if (!EXTENSION) return null;
+      try { plan = await background({type: 'plan'}); } catch {}
+      renderPlan();
+      return plan;
+    }
+    const buy = () => background({type: 'buy'}).catch(() => {});
+    $('pro').onclick = buy;
+    $('plan-button').onclick = () => background({type: plan?.pro ? 'manage' : 'buy'}).catch(() => {});
+    const unblock = () => {
+      if (!blocked || (plan && !plan.pro && plan.used >= plan.limit)) return;
+      blocked = false;
+      for (const page of pages.values()) if (page.status === 'limited') page.status = 'queued';
+      pump();
+    };
+    // Buying Pro, or the date changing, updates the plan in extension storage.
+    const onPlanChange = (changes, area) => { if (area === 'local' && (changes.usage || changes.pro)) refreshPlan().then(unblock); };
+    if (EXTENSION) { chrome.storage.onChanged.addListener(onPlanChange); refreshPlan(); }
+    const dayTimer = EXTENSION ? setInterval(() => { if (blocked) refreshPlan().then(unblock); }, 60000) : 0;
+
+    /* ---------- Ollama ---------- */
+
     const startButton = $('start');
+    if (EXTENSION) startButton.textContent = 'Set up';
     startButton.onclick = async () => {
+      if (EXTENSION) {
+        background({type: 'welcome'}).catch(() => {});
+        startButton.hidden = true; say('Waiting for setup…', 'Finish the steps in the setup tab.');
+        // Carry on by itself once Ollama runs and a vision model is installed.
+        for (let i = 0; i < 600 && !stopped; i++) {
+          if (await ollamaRunning()) { try { if ((await visionModels()).length) return connect(); } catch {} }
+          await sleep(3000);
+        }
+        return offline();
+      }
       launchOllama(); // inside the click, so the browser lets the launcher link open
       startButton.hidden = true; say('Starting Ollama…');
       if (await waitForOllama(20)) connect(); else offline();
     };
     function offline() {
       ready = false; startButton.hidden = false;
-      say('Ollama is off', 'Click Start Ollama. Run install-ollama-launcher.ps1 once if nothing happens.');
+      if (EXTENSION) say('Ollama isn’t running', 'Open Ollama from the Start menu, or click Set up.');
+      else say('Ollama is off', 'Click Start Ollama. Run install-ollama-launcher.ps1 once if nothing happens.');
     }
     // Any click on the page while Ollama is off may also open the launcher.
     const clickLaunch = () => { if (ollamaUp === false && !stopped) launchOllama(); };
     document.addEventListener('pointerdown', clickLaunch, true);
 
     async function connect() {
+      if (stopped) return;
       say('Connecting to Ollama…');
       if (!(await ollamaRunning())) {
         launchOllama();
         say('Starting Ollama…');
-        if (!(await waitForOllama(10))) { offline(); return; }
+        if (!(await waitForOllama(EXTENSION ? 3 : 10))) { offline(); return; }
       }
-      try { await chooseModel(); } catch (error) { say('No model to read with', error.message); return; }
+      try { await chooseModel(); } catch (error) {
+        if (EXTENSION) { startButton.hidden = false; say('No translation model yet', 'Click Set up to download one.'); }
+        else say('No model to read with', error.message);
+        return;
+      }
       ready = true; startButton.hidden = true;
       sweep(); pump();
     }
@@ -1601,7 +1750,7 @@
     const eligible = img => {
       if (!img.isConnected || !img.complete || img.naturalWidth < 300 || img.naturalHeight < 250) return false;
       const rect = img.getBoundingClientRect();
-      return rect.width >= 180 && rect.height >= 150 && /^(https?:|data:image\/|blob:)/.test(sourceOf(img));
+      return rect.width >= 180 && rect.height >= 150 && /^(https?:|data:image\/|blob:|chrome-extension:|moz-extension:)/.test(sourceOf(img));
     };
 
     const nearby = new Set();
@@ -1653,7 +1802,7 @@
     }
 
     async function pump() {
-      if (busy || paused || stopped || !ready) return idleStatus();
+      if (busy || paused || stopped || !ready || blocked) return idleStatus();
       const img = nextPage();
       if (!img) return idleStatus();
       busy = true; current = img;
@@ -1669,6 +1818,12 @@
           if (cached.blob) { apply(img, page, cached.blob); page.status = 'done'; done++; } else page.status = 'empty';
           page.note = cached.note || '';
           return;
+        }
+        // Free plan: pages already translated (above) are free to show again; new ones count.
+        if (EXTENSION) {
+          const p = await refreshPlan();
+          if (pages.get(img) !== page || stopped) return;
+          if (p && !p.pro && p.used >= p.limit) { page.status = 'limited'; blocked = true; return; }
         }
         say('Translating', 'Downloading the page…');
         const blob = await fetchBlob(page.source);
@@ -1686,6 +1841,7 @@
             if (!out) throw new Error('The browser could not create the translated image.');
             apply(img, page, out);
             page.status = 'done'; done++;
+            if (EXTENSION) background({type: 'used'}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
             page.note = result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : '';
             pageCache.put(key, {blob: out, note: page.note});
           } else {
@@ -1715,7 +1871,8 @@
     function idleStatus() {
       if (stopped || busy || !ready) return;
       const failed = [...pages.values()].filter(p => p.status === 'failed');
-      if (paused) say('Paused', `${done} page${done === 1 ? '' : 's'} translated`);
+      if (blocked) say('Today’s free pages are used up', 'They come back at midnight. Pro translates without a limit.');
+      else if (paused) say('Paused', `${done} page${done === 1 ? '' : 's'} translated`);
       else if (failed.length) say(`${done} page${done === 1 ? '' : 's'} translated`, `${failed.length} failed: ${failed[0].error} Click the red mark to retry.`);
       else if (done) say(`${done} page${done === 1 ? '' : 's'} translated`);
       else say('Watching for pages');
@@ -1781,7 +1938,8 @@
 
     function stop() {
       stopped = true; abortRequests();
-      clearInterval(sweeper); observer.disconnect();
+      clearInterval(sweeper); clearInterval(dayTimer); observer.disconnect();
+      if (EXTENSION) chrome.storage.onChanged.removeListener(onPlanChange);
       document.removeEventListener('load', onLoad, true);
       document.removeEventListener('pointerdown', clickLaunch, true);
       removeEventListener('scroll', placeMarks, true); removeEventListener('resize', placeMarks);
