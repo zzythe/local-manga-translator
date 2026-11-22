@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {bundledFontsBuild} from './bundled-fonts.mjs';
 const ext = bundledFontsBuild(process.cwd());
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
-  channel: 'msedge', headless: false, viewport: {width: 1280, height: 900},
+  channel: 'msedge', headless: !process.argv.includes('--headed'), viewport: {width: 1280, height: 900},
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
 });
 let [sw] = ctx.serviceWorkers(); if (!sw) sw = await ctx.waitForEvent('serviceworker');

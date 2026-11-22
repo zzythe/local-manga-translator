@@ -6,7 +6,7 @@ import {join} from 'node:path';
 const ext = join(process.cwd(), 'dist/chrome');
 const channel = process.argv[2];
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
-  channel: channel === 'bundled' ? undefined : channel, headless: false,
+  channel: channel === 'bundled' ? undefined : channel, headless: !process.argv.includes('--headed'),
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
 });
 let [sw] = ctx.serviceWorkers();
