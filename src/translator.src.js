@@ -198,6 +198,46 @@
     throw error;
   }
 
+  /**
+   * Reads JSON as it streams in and hands back each object of its first array once the object
+   * is complete: for {"translations": [{...}, {...}]} every {...} as soon as its closing brace
+   * arrives. push(text) returns the objects completed by that text. An object that does not
+   * parse is skipped; the whole answer is still parsed at the end, and that is what counts.
+   */
+  function streamedItems() {
+    let text = '', pos = 0, depth = 0, inString = false, escaped = false, arrayDepth = 0, start = -1, finished = false;
+    return {
+      push(chunk) {
+        text += chunk;
+        const found = [];
+        for (; pos < text.length; pos++) {
+          const c = text[pos];
+          if (inString) {
+            if (escaped) escaped = false;
+            else if (c === '\\') escaped = true;
+            else if (c === '"') inString = false;
+          } else if (c === '"') inString = true;
+          else if (c === '{' || c === '[') {
+            depth++;
+            if (c === '[' && !arrayDepth && !finished) arrayDepth = depth;
+            else if (c === '{' && arrayDepth && depth === arrayDepth + 1) start = pos;
+          } else if (c === '}' || c === ']') {
+            if (c === '}' && start >= 0 && depth === arrayDepth + 1) {
+              try {
+                const item = JSON.parse(text.slice(start, pos + 1));
+                if (item && typeof item === 'object' && !Array.isArray(item)) found.push(item);
+              } catch {}
+              start = -1;
+            }
+            if (c === ']' && arrayDepth && depth === arrayDepth) { arrayDepth = 0; finished = true; }
+            depth = Math.max(0, depth - 1);
+          }
+        }
+        return found;
+      }
+    };
+  }
+
   // Top to bottom; within a row right to left for Japanese, left to right otherwise.
   function readingOrder(items, rightToLeft) {
     return [...items].sort((a, b) => {
@@ -1894,9 +1934,23 @@
   const OLLAMA_OPTIONS = {temperature: 0, num_predict: 4096, num_ctx: 8192};
   const VISION_NAME = /vl|vision|llava|gemma3|minicpm-v|moondream|pixtral|mistral-small3\.[12]|llama4|granite3\.2-vision/i;
 
-  function chatPayload(model, job) {
-    return {model, stream: false, format: job.schema, options: OLLAMA_OPTIONS, keep_alive: '30m',
+  function chatPayload(model, job, stream = false) {
+    return {model, stream, format: job.schema, options: OLLAMA_OPTIONS, keep_alive: '30m',
       messages: [{role: 'system', content: job.system}, {role: 'user', content: job.user, images: (job.images || []).map(i => i.data)}]};
+  }
+
+  // A streamed /api/chat answer (one JSON object per line) as the single answer readChat takes.
+  function mergeChatStream(text) {
+    let content = '', last = null;
+    for (const line of String(text || '').split('\n')) {
+      if (!line.trim()) continue;
+      let part;
+      try { part = JSON.parse(line); } catch { continue; }
+      if (part.error) return {error: part.error};
+      content += part.message?.content || '';
+      last = part;
+    }
+    return last ? {...last, message: {...last.message, content}} : null;
   }
 
   function readChat(body) {
@@ -2214,7 +2268,56 @@
 
       check();
       job.report(`Translating ${readings.length} line${readings.length > 1 ? 's' : ''}…`);
-      await translateReadings(readings, s, job.ask);
+      const toImage = box => ({x: box.x / scale, y: box.y / scale, width: box.width / scale, height: box.height / scale});
+      // Each reading's cleaned patch, made once: for the bubble shown early and for the page.
+      const patches = new Map();
+      const patchOf = r => {
+        if (!patches.has(r)) patches.set(r, (async () => {
+          const e = r.kind === 'loose' ? {...r.crop, ...r.plan} : r.erase;
+          const img = wctx.getImageData(e.x, e.y, e.width, e.height);
+          // Lettering on the artwork: the inpainting model, when there is one, redraws the art
+          // under it (bars, splashes, textures) far better than smoothing it over.
+          const filled = r.kind === 'loose' && !e.solid && env.inpaint && await repaint(img, e.mask);
+          if (!filled) applyErase(img, e);
+          const patch = env.makeCanvas(e.width, e.height);
+          patch.getContext('2d').putImageData(img, 0, 0);
+          return {patch, box: e};
+        })());
+        return patches.get(r);
+      };
+      // Dialogue sizes follow the original lettering, the same across the page.
+      const typicalOf = list => {
+        const dialogue = list.filter(r => r.kind !== 'loose').map(r => r.typical).sort((a, b) => a - b);
+        return dialogue.length ? dialogue[dialogue.length >> 1] : 0;
+      };
+
+      // job.preview: each bubble cleaned and lettered on its own as soon as its line is
+      // translated, while the model is still writing the others. The finished page below is made
+      // exactly as without it.
+      let previewing = Promise.resolve(), translating = true;
+      const shown = new Map(), previewTypical = typicalOf(readings), measure = env.makeCanvas(1, 1).getContext('2d');
+      const onLine = job.preview && ((r, translation, sfx) => {
+        const key = `${sfx ? 1 : 0}${translation}`;
+        if (!translation || shown.get(r) === key) return;
+        shown.set(r, key);
+        previewing = previewing.then(async () => {
+          if (!translating || job.stopped?.()) return;
+          const {patch, box} = await patchOf(r);
+          const j = letterJob({...r, translation, sfx}, previewTypical);
+          const plan = fitText(measure, j, s, image.width);
+          const area = [toImage(box)];
+          if (plan) area.push(letteringBounds(plan, j));
+          const u = union(area), x = Math.floor(u.x), y = Math.floor(u.y);
+          const piece = env.makeCanvas(Math.ceil(u.x + u.width) - x, Math.ceil(u.y + u.height) - y), g = piece.getContext('2d');
+          g.translate(-x, -y);
+          g.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
+          if (plan) drawText(g, plan, j);
+          if (translating && !job.stopped?.()) job.preview({key: r, canvas: piece, x, y});
+        }).catch(() => {});
+      });
+      try {
+        await translateReadings(readings, s, job.ask, onLine);
+      } finally { translating = false; }
       for (const r of readings) if (!r.translation) skipped.push({original: r.original, reason: 'not translated'});
       readings = readings.filter(r => r.translation);
 
@@ -2222,24 +2325,15 @@
       check();
       const out = env.makeCanvas(image.width, image.height), octx = out.getContext('2d');
       octx.drawImage(image, 0, 0);
-      const place = (patch, box) => octx.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
-      const toImage = box => ({x: box.x / scale, y: box.y / scale, width: box.width / scale, height: box.height / scale});
       for (const r of readings) {
-        const e = r.kind === 'loose' ? {...r.crop, ...r.plan} : r.erase;
-        const img = wctx.getImageData(e.x, e.y, e.width, e.height);
-        // Lettering on the artwork: the inpainting model, when there is one, redraws the art
-        // under it (bars, splashes, textures) far better than smoothing it over.
-        const filled = r.kind === 'loose' && !e.solid && env.inpaint && await repaint(img, e.mask);
-        if (!filled) applyErase(img, e);
-        const patch = env.makeCanvas(e.width, e.height);
-        patch.getContext('2d').putImageData(img, 0, 0);
-        place(patch, e);
+        const {patch, box} = await patchOf(r);
+        octx.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
       }
 
-      // Letter. Dialogue sizes follow the original lettering, the same across the page.
-      const dialogue = readings.filter(r => r.kind !== 'loose').map(r => r.typical).sort((a, b) => a - b);
-      const pageTypical = dialogue.length ? dialogue[dialogue.length >> 1] : 0;
-      const jobs = readings.map(r => {
+      // Letter.
+      const pageTypical = typicalOf(readings);
+      const jobs = readings.map(r => letterJob(r, pageTypical));
+      function letterJob(r, pageTypical) {
         if (r.kind !== 'loose') {
           const own = pageTypical ? clamp(r.typical, pageTypical * 0.85, pageTypical * 1.6) : r.typical;
           // Centred where the original was; in a closed bubble, at the height of the bubble's middle.
@@ -2276,7 +2370,7 @@
         return {r, text: r.translation, layout: toImage(layout), span: shapeSpan(rows, scale), centre: (t.y + t.height / 2) / scale,
           maxSize: size / scale, font, color: plan.color, outline: plan.outline, weight: sfx ? plan.style?.weight : undefined,
           source: toImage(t), anchor: {x: (t.x + t.width / 2) / scale, y: (t.y + t.height / 2) / scale}};
-      });
+      }
       const plans = jobs.map(j => fitText(octx, j, s, image.width));
       // A roomy bubble does not get bigger lettering than its neighbours with the same original size.
       const sizes = plans.filter((p, i) => p && jobs[i].r.kind !== 'loose').map(p => p.size).sort((a, b) => a - b);
@@ -2399,7 +2493,10 @@
       return true;
     }
 
-    async function translateReadings(readings, s, ask) {
+    // onLine(reading, translation, sfx), when given, hears each line as soon as it is known: from
+    // the answer while it streams in (ask(job, onText) then streams), and again once the answer
+    // is complete. Only the complete answer is kept.
+    async function translateReadings(readings, s, ask, onLine) {
       const terms = parseTerms(s.terms);
       const key = r => `${s.target}\u0000${s.terms || ''}\u0000${r.original}`;
       for (const r of readings) if (memory.has(key(r))) Object.assign(r, memory.get(key(r)));
@@ -2410,13 +2507,22 @@
           if (known) Object.assign(r, {translation: known, sfx: true});
         }
       }
+      if (onLine) for (const r of readings) if (r.translation) onLine(r, r.translation, r.sfx);
       // One call per batch. A batch the model fails on (it can loop on a long "Shhhh…" until
       // Ollama stops it) is split in half and retried, so one bad line costs only itself.
       const run = async (chunk, retry) => {
         let data;
+        const stream = onLine && streamedItems();
+        const onText = stream && (text => {
+          for (const item of stream.push(text)) {
+            const r = chunk[item.id];
+            if (r && typeof r === 'object' && !isUntranslated(r.original, item.text, s.target)) onLine(r, cleanTranslation(item.text, r.original, item.sfx === true), item.sfx === true);
+          }
+        });
         try {
-          data = await ask(translationJob(s, chunk.map((r, id) => ({id, original: r.original, ...(r.kind === 'loose' ? {art: true} : {})})),
-            recent.slice(-12), retry, termsIn(terms, chunk.map(r => r.original))));
+          const job = translationJob(s, chunk.map((r, id) => ({id, original: r.original, ...(r.kind === 'loose' ? {art: true} : {})})),
+            recent.slice(-12), retry, termsIn(terms, chunk.map(r => r.original)));
+          data = await (onText ? ask(job, onText) : ask(job));
         } catch (error) {
           if (error.code === 'ABORT' || error.code === 'BLOCKED' || /^Ollama (stopped|took)/.test(error.message)) throw error;
           if (chunk.length === 1) return;
@@ -2432,6 +2538,7 @@
             r.translation = cleanTranslation(item.text, r.original, r.sfx);
           }
         }
+        if (onLine) for (const r of chunk) if (r.translation) onLine(r, r.translation, r.sfx);
       };
       for (let attempt = 0; attempt < 2; attempt++) {
         const pending = readings.filter(r => !r.translation);
@@ -2593,6 +2700,19 @@
     return [left, top, right - left, plan.lines.length * step];
   }
 
+  // The area a plan's lettering covers once drawn in style (outline, slant), with room for
+  // swashes and the outline: {x, y, width, height}.
+  function letteringBounds(plan, style) {
+    const [x, y, w, h] = letteredBox(plan), pad = plan.size * 0.35 + 4;
+    let corners = [[x - pad, y - pad], [x + w + pad, y - pad], [x - pad, y + h + pad], [x + w + pad, y + h + pad]];
+    if (style.rotate) {
+      const {angle, cx, cy} = style.rotate, cos = Math.cos(angle), sin = Math.sin(angle);
+      corners = corners.map(([px, py]) => [cx + (px - cx) * cos - (py - cy) * sin, cy + (px - cx) * sin + (py - cy) * cos]);
+    }
+    const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+    return {x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys)};
+  }
+
   // Draw a plan from fitText in style {color, outline}. An outline is drawn only when the original
   // lettering had one.
   function drawText(ctx, plan, style) {
@@ -2631,7 +2751,7 @@
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
-      paintText, fitText, letteredBox, drawText, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
+      paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;
   }
 
@@ -2658,10 +2778,11 @@
 
   // Extension: the background worker makes the request, so page CORS rules and Ollama's origin
   // check don't apply. Messages on the port keep the worker awake during long model calls.
+  // With options.onChunk the answer comes in pieces as it arrives, and onChunk hears each.
   function extensionRequest(options) {
     return new Promise((resolve, reject) => {
       const port = chrome.runtime.connect({name: 'request'});
-      let finished = false;
+      let finished = false, streamed = '';
       const ping = setInterval(() => { try { port.postMessage({type: 'ping'}); } catch {} }, 15000);
       const end = () => { finished = true; clearInterval(ping); activeRequests.delete(handle); try { port.disconnect(); } catch {} };
       const fail = (message, code) => { if (finished) return; end(); reject(Object.assign(new Error(message), {code})); };
@@ -2669,14 +2790,15 @@
       port.onMessage.addListener(msg => {
         if (finished) return;
         if (msg.type === 'error') return fail(msg.message, msg.code);
+        if (msg.type === 'chunk') { streamed += msg.text; try { options.onChunk?.(msg.text); } catch {} return; }
         if (msg.type !== 'done') return;
         end();
-        resolve({status: msg.status, responseText: msg.text ?? '', response: msg.base64 != null ? base64ToBlob(msg.base64, msg.mime) : null});
+        resolve({status: msg.status, responseText: msg.text ?? streamed, response: msg.base64 != null ? base64ToBlob(msg.base64, msg.mime) : null});
       });
       port.onDisconnect.addListener(() => fail('Network request failed.', 'NETWORK'));
       activeRequests.add(handle);
       port.postMessage({type: 'start', method: options.method || 'GET', url: options.url, headers: options.headers || {},
-        data: options.data, responseType: options.responseType || 'text', timeout: options.timeout || 120000,
+        data: options.data, responseType: options.responseType || 'text', timeout: options.timeout || 120000, stream: !!options.onChunk,
         credentials: options.anonymous === false, referrer: options.headers?.Referer});
     });
   }
@@ -2688,9 +2810,16 @@
     if (EXTENSION) return extensionRequest(options);
     return new Promise((resolve, reject) => {
       const fail = (message, code) => { activeRequests.delete(handle); reject(Object.assign(new Error(message), {code})); };
+      // Userscript managers that give the text received so far while loading stream it to onChunk.
+      let seen = 0;
+      const progress = response => {
+        const text = typeof response?.responseText === 'string' ? response.responseText : '';
+        if (options.onChunk && text.length > seen) { const piece = text.slice(seen); seen = text.length; try { options.onChunk(piece); } catch {} }
+      };
+      const {onChunk, ...rest} = options;
       const handle = GM_xmlhttpRequest({
-        timeout: 120000, anonymous: true, ...options,
-        onload: response => { activeRequests.delete(handle); resolve(response); },
+        timeout: 120000, anonymous: true, ...rest, ...(onChunk ? {onprogress: progress} : {}),
+        onload: response => { activeRequests.delete(handle); progress(response); resolve(response); },
         onerror: () => fail('Network request failed.', 'NETWORK'),
         ontimeout: () => fail('The request timed out.', 'TIMEOUT'),
         onabort: () => fail('Stopped.', 'ABORT')
@@ -2714,6 +2843,29 @@
       throw Object.assign(new Error(body?.error ? `Ollama: ${body.error}` : `Ollama answered ${response.status}.`), {status: response.status});
     }
     return body;
+  }
+
+  // A chat request whose answer streams in: onText hears each piece of the model's text as it
+  // arrives. Returns the whole answer as /api/chat without streaming would.
+  async function ollamaChatStream(payload, timeout, onText) {
+    let pending = '';
+    const onChunk = chunk => {
+      const lines = (pending + chunk).split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        let part = null;
+        try { part = JSON.parse(line); } catch {}
+        if (part?.message?.content) onText(part.message.content);
+      }
+    };
+    const response = await request({method: 'POST', url: OLLAMA + '/api/chat', timeout, data: JSON.stringify(payload),
+      headers: {'Content-Type': 'application/json'}, onChunk});
+    if (response.status < 200 || response.status >= 300) {
+      let body = null;
+      try { body = JSON.parse(response.responseText); } catch {}
+      throw Object.assign(new Error(body?.error ? `Ollama: ${body.error}` : `Ollama answered ${response.status}.`), {status: response.status});
+    }
+    return mergeChatStream(response.responseText);
   }
 
   let ollamaUp = null, lastLaunch = 0;
@@ -2993,6 +3145,12 @@
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex: none; }
     .check[hidden] { display: none; }
 
+    /* Bubbles lettered while the rest of the page is translated, over the page image. */
+    .overlay { position: absolute; overflow: hidden; }
+    .overlay[hidden] { display: none; }
+    .overlay-image { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+    .piece { position: absolute; }
+
     /* Per-image markers, top-right corner of each page. */
     .mark { position: absolute; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
       background: var(--paper); border: 2px solid var(--ink); pointer-events: auto; padding: 0;
@@ -3008,6 +3166,7 @@
 
   const HTML = `
     <div class="layer">
+      <div class="overlays"></div>
       <div class="marks"></div>
       <section class="bubble" role="region" aria-label="Manga translator">
         <div class="bar">
@@ -3075,7 +3234,7 @@
     root.innerHTML = `<style>${CSS}</style>${HTML}`;
     document.documentElement.append(element);
     const $ = id => root.getElementById(id);
-    const marks = root.querySelector('.marks');
+    const marks = root.querySelector('.marks'), overlays = root.querySelector('.overlays');
 
     const say = (title, detail = '') => { $('title').textContent = title; $('detail').textContent = detail; };
     const progress = () => {
@@ -3229,10 +3388,12 @@
       sweep(); pump();
     }
 
-    async function ask(job) {
+    // onText: stream the answer, hearing each piece of it as it arrives.
+    async function ask(job, onText) {
       for (let attempt = 0; ; attempt++) {
         if (stopped) throw abortError();
         try {
+          if (onText) return readChat(await ollamaChatStream(chatPayload(settings.model, job, true), 300000, onText));
           return readChat(await ollamaJSON('/api/chat', chatPayload(settings.model, job), 300000));
         } catch (error) {
           if (error.code === 'NETWORK' && attempt === 0) {
@@ -3286,6 +3447,7 @@
       if (!page) return;
       if (page.url) { if (page.showing) restore(img, page); URL.revokeObjectURL(page.url); }
       page.mark?.remove();
+      removeOverlay(page);
       pages.delete(img);
     }
 
@@ -3387,7 +3549,9 @@
         try {
           if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
           await fontReady;
-          const result = await pipeline.translate(bitmap, settings, {ask: job => inTurn(img, () => ask(job)), report: text => say('Translating', text), stopped: () => stopped || pages.get(img) !== page});
+          const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
+            report: text => say('Translating', text), stopped: () => stopped || pages.get(img) !== page,
+            preview: piece => addPiece(img, page, piece, width, height)});
           if (pages.get(img) !== page) return;
           if (result.canvas) {
             const big = result.canvas.width * result.canvas.height > 8e6;
@@ -3395,6 +3559,12 @@
             result.canvas.width = result.canvas.height = 1;
             if (!out) throw new Error('The browser could not create the translated image.');
             apply(img, page, out);
+            // The bubbles shown early go once the finished page is on screen in their place.
+            const overlay = page.overlay;
+            if (overlay) {
+              (page.showing ? img.decode().catch(() => {}) : Promise.resolve())
+                .then(() => requestAnimationFrame(() => removeOverlay(page, overlay)));
+            }
             page.status = 'done'; done++;
             if (EXTENSION) background({type: 'used', image: {strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
             page.note = result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : '';
@@ -3412,6 +3582,7 @@
         if (error.code !== 'ABORT' && /Ollama stopped|Network/.test(error.message)) offline();
       } finally {
         working.delete(img);
+        if (page.overlay && page.status !== 'done') removeOverlay(page);
         renderMarks(); progress();
         if (!stopped) setTimeout(pump, 0);
       }
@@ -3444,6 +3615,68 @@
       else if (failed.length) say(`${done} page${done === 1 ? '' : 's'} translated`, `${failed.length} failed: ${failed[0].error} Click the red mark to retry.`);
       else if (done) say(`${done} page${done === 1 ? '' : 's'} translated`);
       else say('Watching for pages');
+    }
+
+    /* ---------- Bubbles shown while a page is translated ---------- */
+
+    // Each bubble's translation, lettered on its cleaned patch of the page, fades in over the
+    // image as soon as its line has been translated; the original stays until then. One element
+    // per page holds them, in the image's own pixels, scaled onto the image wherever it is drawn.
+    const fade = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
+    function addPiece(img, page, piece, width, height) {
+      if (pages.get(img) !== page || stopped || page.status !== 'working') return;
+      if (!page.overlay) {
+        const clip = document.createElement('div'), inner = document.createElement('div');
+        clip.className = 'overlay'; inner.className = 'overlay-image';
+        inner.style.width = `${width}px`; inner.style.height = `${height}px`;
+        clip.append(inner); overlays.append(clip);
+        page.overlay = {clip, inner, width, height, pieces: new Map()};
+        placeOverlays();
+      }
+      const {inner, pieces} = page.overlay, c = piece.canvas, old = pieces.get(piece.key);
+      c.className = 'piece';
+      c.style.left = `${piece.x}px`; c.style.top = `${piece.y}px`;
+      inner.append(c);
+      pieces.set(piece.key, c);
+      if (fade) c.animate([{opacity: 0}, {opacity: 1}], {duration: fade, easing: 'ease-out'});
+      if (old) setTimeout(() => old.remove(), fade + 50);
+    }
+    function removeOverlay(page, overlay = page.overlay) {
+      if (!overlay) return;
+      overlay.clip.remove();
+      if (page.overlay === overlay) page.overlay = null;
+    }
+    // Kept over the image every frame while there are any: scrolling, resizing and the site's
+    // own layout changes all move it.
+    let overlayFrame = 0;
+    function placeOverlays() {
+      if (overlayFrame) return;
+      const step = () => {
+        overlayFrame = 0;
+        let any = false;
+        for (const [img, page] of pages) {
+          const o = page.overlay;
+          if (!o) continue;
+          any = true;
+          const r = img.getBoundingClientRect(), cs = getComputedStyle(img), px = key => parseFloat(cs[key]) || 0;
+          const left = px('borderLeftWidth') + px('paddingLeft'), top = px('borderTopWidth') + px('paddingTop');
+          const w = r.width - left - px('borderRightWidth') - px('paddingRight'), h = r.height - top - px('borderBottomWidth') - px('paddingBottom');
+          // Where the picture is drawn inside the element (object-fit), centred as by default.
+          let sx = w / o.width, sy = h / o.height;
+          const fit = cs.objectFit;
+          if (fit === 'contain' || fit === 'cover' || fit === 'none' || fit === 'scale-down') {
+            let k = fit === 'cover' ? Math.max(sx, sy) : fit === 'none' ? 1 : Math.min(sx, sy);
+            if (fit === 'scale-down') k = Math.min(k, 1);
+            sx = sy = k;
+          }
+          const dx = (w - o.width * sx) / 2, dy = (h - o.height * sy) / 2;
+          o.clip.hidden = showOriginals || !img.isConnected || w <= 0 || h <= 0 || cs.visibility === 'hidden';
+          Object.assign(o.clip.style, {left: `${r.left + left}px`, top: `${r.top + top}px`, width: `${Math.max(0, w)}px`, height: `${Math.max(0, h)}px`});
+          o.inner.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        }
+        if (any) overlayFrame = requestAnimationFrame(step);
+      };
+      overlayFrame = requestAnimationFrame(step);
     }
 
     /* ---------- Swapping images ---------- */

@@ -717,3 +717,32 @@ test('a bit of artwork at the end of a block, lined up with no line of text, is 
   const [b] = t.findBubbleText(img.data, img.width, img.height);
   assert.ok(b && b.y + b.height <= 82 && b.x >= 106, JSON.stringify(b && [b.x, b.y, b.width, b.height]));
 });
+
+test('streamed translations: each line once its object is complete, whatever the pieces', () => {
+  const answer = '{"translations": [{"id": 0, "text": "Wait {here} \\"now\\"!", "sfx": false}, {"id": 1, "text": "SPLASH", "sfx": true},\n' +
+    '{"id": 2, "text": "Back\\\\slash ]}", "sfx": false}]}';
+  // Every way of cutting the answer gives the same lines.
+  for (const size of [1, 2, 3, 7, 50, answer.length]) {
+    const stream = t.streamedItems(), seen = [];
+    for (let i = 0; i < answer.length; i += size) {
+      seen.push(...stream.push(answer.slice(i, i + size)));
+    }
+    assert.deepEqual(seen, JSON.parse(answer).translations, `pieces of ${size}`);
+  }
+  // A line is not handed out until its object is closed, and an unfinished one never is.
+  const s = t.streamedItems();
+  assert.deepEqual(s.push('```json\n{"translations": [{"id": 0, "text": "Hi"'), []);
+  assert.deepEqual(s.push('}, {"id": 1, "te'), [{id: 0, text: 'Hi'}]);
+  assert.deepEqual(s.push('xt": "cut off'), []);
+  // A malformed object is skipped and the ones after it still come through.
+  const m = t.streamedItems();
+  assert.deepEqual(m.push('{"translations": [{"id": 0, "text": oops}, {"id": 1, "text": "ok"}]} [{"id": 9}]'), [{id: 1, text: 'ok'}]);
+  // Ollama's streamed answer, one JSON object per line, read as one answer.
+  const lines = ['{"message":{"role":"assistant","content":"{\\"a\\""},"done":false}', '{"message":{"role":"assistant","content":": 1}"},"done":false}',
+    '{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}'].join('\n');
+  assert.deepEqual(t.readChat(t.mergeChatStream(lines)), {a: 1});
+  assert.throws(() => t.readChat(t.mergeChatStream(lines.replace('"stop"', '"length"'))), /ran out of room/);
+  assert.throws(() => t.readChat(t.mergeChatStream('{"message":{"content":"{"}}\n{"error":"model crashed"}')), /model crashed/);
+  assert.deepEqual(t.chatPayload('m', {schema: {}, system: '', user: ''}, true).stream, true);
+  assert.deepEqual(t.chatPayload('m', {schema: {}, system: '', user: ''}).stream, false);
+});

@@ -6,6 +6,7 @@
 //     node build.mjs && node tools/quality/run.mjs [name-filter] [--source=Japanese] [--model=qwen3-vl:4b-instruct]
 //       [--out=out] [--unload] [--pause=30]   unload the model after each page, wait 30 s between pages
 //       [--concurrency=2]   after the first page, translate this many at once, as when reading ahead
+//       [--no-stream]       translate without streaming the answer (no bubbles shown early)
 import {chromium} from 'playwright-core';
 import {readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync} from 'node:fs';
 import {join, dirname, extname} from 'node:path';
@@ -20,6 +21,7 @@ const outDir = join(here, option('out', 'out'));
 // --terms=terms.txt: the reader's names and terms (one per line, シチミ = Shichimi), as in settings.
 const terms = option('terms') ? readFileSync(join(here, option('terms')), 'utf8') : '';
 const unload = args.includes('--unload'), pause = Number(option('pause', 0)), concurrency = Number(option('concurrency', 1));
+const stream = !args.includes('--no-stream');
 mkdirSync(outDir, {recursive: true});
 
 // The built userscript, made to hand its internals to the page instead of starting its UI.
@@ -78,7 +80,9 @@ const next = () => {
   asking = true;
   waiting.shift().resolve(() => { asking = false; next(); });
 };
-await page.exposeFunction('askOllama', async (job, name) => {
+// A streamed answer (job.stream) is passed to the page's globalThis.onText[streamId] piece by
+// piece, as the extension does, and returned whole at the end.
+await page.exposeFunction('askOllama', async (job, name, streamId) => {
   const calls = callsOf.get(name);
   const done = await turn(pages.indexOf(name));
   const started = Date.now();
@@ -86,7 +90,24 @@ await page.exposeFunction('askOllama', async (job, name) => {
   try {
     const response = await fetch('http://127.0.0.1:11434/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(job)});
-    body = await response.json();
+    if (!job.stream) body = await response.json();
+    else {
+      let content = '', pending = '';
+      const decoder = new TextDecoder();
+      for await (const bytes of response.body) {
+        const lines = (pending + decoder.decode(bytes, {stream: true})).split('\n');
+        pending = lines.pop();
+        for (const line of lines.filter(l => l.trim())) {
+          const part = JSON.parse(line);
+          if (part.error) { body = part; break; }
+          body = part;
+          content += part.message?.content || '';
+          if (part.message?.content) await page.evaluate(([id, piece]) => globalThis.onText[id]?.(piece), [streamId, part.message.content]);
+        }
+        if (body?.error) break;
+      }
+      if (!body?.error) body = {...body, message: {...body?.message, content}};
+    }
   } finally { done(); }
   const s = ns => Math.round((ns || 0) / 1e6);
   calls.push({ms: Date.now() - started, kind: job.messages[0].content.slice(0, 40), images: job.messages[1].images?.length || 0,
@@ -114,7 +135,7 @@ async function translatePage(name) {
   const calls = [];
   callsOf.set(name, calls);
   const started = Date.now();
-  const result = await page.evaluate(async ({name, model, source, terms}) => {
+  const result = await page.evaluate(async ({name, model, source, terms, stream}) => {
     const M = globalThis.MLT;
     const env = {
       makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), {width: w, height: h}),
@@ -141,7 +162,21 @@ async function translatePage(name) {
     if (globalThis.inpaintImage) env.inpaint = async (img, mask) =>
       Uint8Array.from(atob(await globalThis.inpaintImage(b64(img.data), b64(mask), img.width, img.height)), c => c.charCodeAt(0));
     const pipeline = M.createPipeline(env);
-    const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j), name)), report: () => {}};
+    globalThis.onText ||= {};
+    const started = performance.now();
+    let firstBubble = null;
+    const job = {
+      async ask(j, onText) {
+        if (!stream || !onText) return M.readChat(await globalThis.askOllama(M.chatPayload(model, j), name));
+        const id = Math.random().toString(36).slice(2);
+        globalThis.onText[id] = onText;
+        try { return M.readChat(await globalThis.askOllama(M.chatPayload(model, j, true), name, id)); }
+        finally { delete globalThis.onText[id]; }
+      },
+      report: () => {},
+      // Bubbles shown early, as in the extension: when the first one is ready.
+      preview: () => { firstBubble ??= performance.now() - started; }
+    };
     const out = await pipeline.translate(img, {source, target: 'English', uppercase: true, terms}, job);
     const translated = out.canvas || img;
     const side = document.createElement('canvas');
@@ -152,15 +187,16 @@ async function translatePage(name) {
     const full = document.createElement('canvas');
     full.width = img.width; full.height = img.height; full.getContext('2d').drawImage(translated, 0, 0);
     return {png: full.toDataURL('image/png'), side: side.toDataURL('image/jpeg', 0.88), translated: out.translated, kept: out.kept,
-      message: out.message || '', debug: out.debug || null, skipped: out.skipped || []};
-  }, {name, model, source, terms});
+      message: out.message || '', debug: out.debug || null, skipped: out.skipped || [], firstBubble: firstBubble && Math.round(firstBubble)};
+  }, {name, model, source, terms, stream});
   const ms = Date.now() - started, base = name.replace(/\.[^.]+$/, '');
   writeFileSync(join(outDir, `${base}.png`), Buffer.from(result.png.split(',')[1], 'base64'));
   writeFileSync(join(outDir, `${base}-side.jpg`), Buffer.from(result.side.split(',')[1], 'base64'));
-  writeFileSync(join(outDir, `${base}.json`), JSON.stringify({ms, translated: result.translated, kept: result.kept, message: result.message,
+  writeFileSync(join(outDir, `${base}.json`), JSON.stringify({ms, firstBubbleMs: result.firstBubble, translated: result.translated, kept: result.kept, message: result.message,
     readings: result.debug, skipped: result.skipped, modelMs: calls.reduce((a, c) => a + c.ms, 0), calls}, null, 2));
-  console.log(`${name}: ${(ms / 1000).toFixed(1)} s, ${calls.length} model calls, ${result.translated} lettered, ${result.kept} kept${result.message ? ' — ' + result.message : ''}`);
-  summary.push({name, ms, calls: calls.length, translated: result.translated, kept: result.kept, finished: Date.now() - runStarted});
+  const first = result.firstBubble ? `, first bubble after ${(result.firstBubble / 1000).toFixed(1)} s` : '';
+  console.log(`${name}: ${(ms / 1000).toFixed(1)} s${first}, ${calls.length} model calls, ${result.translated} lettered, ${result.kept} kept${result.message ? ' — ' + result.message : ''}`);
+  summary.push({name, ms, firstBubbleMs: result.firstBubble, calls: calls.length, translated: result.translated, kept: result.kept, finished: Date.now() - runStarted});
   // Gentle mode, for a PC that is in use: the model leaves video memory after every page, and the
   // next page waits.
   if (unload) await fetch('http://127.0.0.1:11434/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'},

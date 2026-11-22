@@ -83,6 +83,16 @@ function handleRequest(port) {
       if (message.responseType === 'blob') {
         const buffer = await response.arrayBuffer();
         send({type: 'done', status: response.status, base64: toBase64(buffer), mime: response.headers.get('content-type') || ''});
+      } else if (message.stream && response.body) {
+        // Passed on as it arrives; the page script puts the pieces back together.
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        for (;;) {
+          const {value, done} = await reader.read();
+          const text = done ? decoder.decode() : decoder.decode(value, {stream: true});
+          if (text) send({type: 'chunk', text});
+          if (done) break;
+        }
+        send({type: 'done', status: response.status});
       } else {
         send({type: 'done', status: response.status, text: await response.text()});
       }
