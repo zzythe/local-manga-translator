@@ -902,3 +902,10 @@ test('a sound effect on a curve is followed round it, each letter turned with it
   assert.ok(run.letters[3].y < run.letters[0].y - 10 && run.letters[3].y < run.letters[6].y - 10, run.letters.map(l => Math.round(l.y)).join());
   assert.ok(run.letters[0].angle < -0.2 && run.letters[6].angle > 0.2);
 });
+
+test('the extension warms Ollama up with the options of its requests, so the model loads once', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../extension/background.js'), 'utf8');
+  const literal = /const OLLAMA_OPTIONS = (\{[^}]*\});/.exec(source)?.[1];
+  assert.ok(literal, 'OLLAMA_OPTIONS in background.js');
+  assert.deepEqual(Function(`return ${literal}`)(), t.chatPayload('m', {system: '', user: ''}).options);
+});

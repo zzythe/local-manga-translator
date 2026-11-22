@@ -4338,7 +4338,8 @@
     // loading (first use): both are said on the status line, since the first page waits for them.
     let warming = null, helpers = null;
     // The helper models find the text on a page in about a second; the model alone takes far
-    // longer than their download (72 MB, once), so the first page waits for them.
+    // longer than their download (72 MB, once), so the first page waits for them. (The extension
+    // starts loading them when a page with the translator on opens.)
     function helpersReady() {
       if (!EXTENSION) return Promise.resolve();
       return helpers ||= (async () => {

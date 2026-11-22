@@ -351,6 +351,37 @@ function toDetector(message) {
   return detectorPage.then(() => chrome.runtime.sendMessage({...message, target: 'detector'}));
 }
 
+/* ------------------------------------------------------------------------------------------
+ * Getting ready early. When a page of a site with the translator on starts loading (or the
+ * translator is turned on), the helper models and the translation model start loading at once,
+ * while the page itself loads, instead of when the translator first needs them: after the
+ * browser starts, that took the first page seconds. The model is kept for 30 minutes, as after
+ * any translation; nothing is loaded for sites where the translator is off.
+ * ---------------------------------------------------------------------------------------- */
+
+// The same options as the translator's requests (translator.src.js): another context size would
+// make Ollama load the model a second time.
+const OLLAMA_OPTIONS = {temperature: 0, num_predict: 4096, num_ctx: 8192};
+let warmedAt = 0;
+function getReady() {
+  toDetector({type: 'prepare'}).catch(() => {});
+  if (Date.now() - warmedAt < 60000) return;
+  warmedAt = Date.now();
+  (async () => {
+    const {settings} = await chrome.storage.local.get('settings');
+    if (!settings?.model) return; // not set up yet: the translator finds a model first
+    await rulesReady;
+    await fetch(OLLAMA_HOSTS[0] + 'api/chat', {method: 'POST',
+      body: JSON.stringify({model: settings.model, messages: [], keep_alive: '30m', options: OLLAMA_OPTIONS})});
+  })().catch(() => {});
+}
+const readyIfOn = answer => { if (answer?.on || answer?.ok) getReady(); return answer; };
+
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status !== 'loading' || !/^https?:/.test(tab.url || '')) return;
+  wanted(tab.url).then(readyIfOn, () => {});
+});
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.target) return false; // for the detector page
   const answer = promise => { promise.then(reply, error => reply({error: String(error?.message || error)})); return true; };
@@ -369,8 +400,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     // A tab with pages here (Firefox: this page unloads after 30 s without events).
     case 'keep': reply({ok: true}); return false;
     // The translator turned on for a site, or off.
-    case 'wanted': return answer(wanted(sender.tab?.url));
-    case 'site-on': case 'site-off': return answer(siteSession(sender.tab?.url, message.type === 'site-on'));
+    case 'wanted': return answer(wanted(sender.tab?.url).then(readyIfOn));
+    case 'site-on': return answer(siteSession(sender.tab?.url, true).then(readyIfOn));
+    case 'site-off': return answer(siteSession(sender.tab?.url, false));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));
     case 'buy': return answer(openCheckout());
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;
