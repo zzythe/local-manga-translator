@@ -12,21 +12,18 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 
 ## Which run each page's output comes from
 
-- E01P01, E01P02: last run, code as of commit 8ffdf38.
-- All other pages: the full run before that, which had the chained-bubble and edge-letter fixes
-  but not the loose-SFX colour rule (art next to SFX) or the dangling-comma clean-up.
-- The run after that was stopped part way to free the PC. **Every page needs a full run when the
-  PC is free** (see the end of this file).
+All pages: full run on 2026-11-21 (`run.mjs --unload --pause=30`), translator code as of commit b1f96a0.
+E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 
 ## E01P01 (5 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | …これで 出来上がり | …And that's it, done. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept |
+| 1 | …これで 出来上がり | ...and that's it done. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept |
 | 2 | ぱらぱら (SFX) | FLUTTER | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads はらはら; should be SPRINKLE. 8b reads it right |
-| 3 | …うーん 足りなかった かも | …Hmm, maybe I still need more. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | どばどば (SFX) | Doh-doh | ✓ | ⟳ | ✓ | ✓ | ✓ | ✓ | 4b reads どはどは; the glossary now maps it to GLUG GLUG |
-| 5 | ざぶん (SFX) | Sann | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads さなん/きぶん, 8b きぶん; no fix without a better read |
+| 3 | …うーん 足りなかった かも | ...hmm, maybe not enough. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | どばどば (SFX) | GLUG GLUG | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads どはどは; the glossary maps it to GLUG GLUG |
+| 5 | ざぶん (SFX) | Saan... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads さなん/きぶん, 8b きぶん; no fix without a better read |
 
 ## E01P02 (3 items, 0 skipped)
 
@@ -40,7 +37,7 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut out... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic): "my Rea's about to run out" |
+| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic): "my Rea's about to run out" |
 | 2 | あれ お目覚めね! | Hey, you're awake! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
 | 3 | 大丈夫？ 寒くない？ | You okay? Not too cold? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening—can't protect you from this cold anymore. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
@@ -50,11 +47,11 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 私バカだった! | I was such a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | もうすぐ加速もできなくなりそう | I'm about to lose the ability to accelerate too soon. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | stiff wording |
-| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | もうすぐ加速もできなくなりそう | I'm gonna lose my speed soon | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | すぐにあきらめてしまうと思ったのに! | I thought I'd give up right away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | wrong subject: "I thought they'd give up quickly!" |
-| 6 | なんとかうまくまければいいのだけど | I just hope I can manage somehow. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
+| 6 | なんとかうまくまければいいのだけど | I just hope I can manage to keep up | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
 | 7 | 捕まえられる前に! | Before they catch us! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two escape! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
 | 9 | …つかれた… | I'm so tired... | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
@@ -67,10 +64,10 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | そうなったら すぐに攻撃よ | If that's the case, attack now! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | ああ この追跡劇も もうすぐ終わる | Ah, this chase scene's almost over already. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
-| 3 | 今のあれ 見えた？ | Did you see that just now? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | まもなく 魔力切れに なりそうだ | Looks like magic's about to run out soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
+| 1 | そうなったら すぐに攻撃よ | If that's the case, we'll attack right away. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | ああ この追跡劇も もうすぐ終わる | Ah, this chase scene's almost over. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
+| 3 | 今のあれ 見えた？ | Did you see what just happened? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | まもなく 魔力切れに なりそうだ | Looks like we're about to run out of magic. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
 
 ## E36P01 (3 items, 0 skipped)
 
@@ -88,7 +85,7 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 | 2 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the original has a dark drop shadow; ours has none |
 | 3 | ガラッ! (SFX) | CLANG! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
 | 4 | もう! | Ugh! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | 何もできないってことね! | So, I can't do anything, huh? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the て against the bubble edge is now erased |
+| 5 | 何もできないってことね! | You can't do anything, huh? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | Pepper means herself: "So I can't do anything, huh?" The て against the bubble edge is erased |
 
 ## E36P03 (9 items, 0 skipped)
 
@@ -96,12 +93,12 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | しーっ ペッパー! | Shh! Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble |
 | 2 | 私 バカだった! | I was a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | おとなしく して | Be quiet, | ✓ | ⟳ | ✓ | ✓ | ✓ | ✓ | the dangling comma is now dropped |
+| 3 | おとなしく して | Be quiet | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | no dangling comma |
 | 4 | 一体 誰なの?! | Who are you?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ⟳ | ⟳ | ~ | the crystal's glow was erased with it and the word sat too far left. The mask no longer takes the glow (offline mask dump), which also re-centres the word. The original's blue glow is not reproduced |
+| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ~ | ✓ | ~ | crystal glow kept, FSSSH centred on the original, the "…" dots now erased too (commit baf00bc). Where シ crossed the bottle's light outline the inpaint leaves a soft smudge. The original's blue glow is not reproduced |
 | 6 | しーっ! 静かにして! | Shh! Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 7 | 来て | Come here | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
-| 8 | ここから 出してあげる | I'll get you out of here | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 7 | 来て | Come here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
+| 8 | ここから 出してあげる | I'll get you out of here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 9 | シチミ? | Chitami? | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | name: Shichimi |
 
 ## E38P01 (7 items, 0 skipped)
@@ -109,19 +106,19 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | やっと… | Finally... | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | この強敵を 仕留めることが できた! | I finally managed to take down this tough enemy! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | ああ 厄介だった 冒険者たちが 進めなくなるのも よくわかる | Ah, I see why it was so troublesome—those adventurers can't move forward without them. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "What a pain. No wonder adventurers couldn't get past it." Split from the chained bubble below |
+| 2 | この強敵を 仕留めることが できた! | I finally took down this tough enemy! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | ああ 厄介だった 冒険者たちが 進めなくなるのも よくわかる | Ah, I see why it was so troublesome—those adventurers can't move forward without a healer. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "What a pain. No wonder adventurers couldn't get past it." 4b adds "without a healer". Split from the chained bubble below |
 | 4 | ブラシックは どうだ? | Brushick, how's he doing? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | くっ! そんなに 深手を負って いたのか! | Huh! He was really hurt that bad? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | くっ is a grunt, not "Huh". The prompt now gives くっ → Ngh! (not run yet). Stray "!'" from the next bubble is gone |
+| 5 | くっ! そんなに 深手を負って いたのか! | Huh! He was really hurt that bad? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | くっ is a grunt, not "Huh". The prompt gives くっ → Ngh!, 4b ignores it. Stray "!' from the next bubble is gone |
 | 6 | ブラシック? ブラシック! | Brushick? Brushick! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the side-by-side bubble |
-| 7 | ヒーラー! 助けて! 今すぐ | Healer! Help me! Now! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 7 | ヒーラー! 助けて! 今すぐ | Healer! Help me now! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E38P02 (8 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 道を開けて… | Clear the path... | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | ズウン (SFX) | THOOM | ✓ | ✓ | ✓ | ⟳ | ✓ | ~ | a small part of the hand below was in the mask; no longer (offline mask dump). Glow not reproduced |
+| 2 | ズウン (SFX) | THOOM | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the hand below is untouched. Glow not reproduced |
 | 3 | 傷が… 消えた | The wound... gone. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | さあ急ごう 宝物が 待っている! | Now, hurry! The treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | そうだ! | Right! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
@@ -135,40 +132,43 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 俺のだ! | Mine! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | いいえ! 私の獲物よ! | No! Mine! | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | loses "my prey" |
-| 3 | 自分が何をしているのかわかっているのか? | Do you know what you're doing? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 我らは何ヶ月もお前を捜していたのだぞ | We've been looking for you for months! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | 自分が何をしているのかわかっているのか? | Do you even know what you're doing? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 我らは何ヶ月もお前を捜していたのだぞ | We've been hunting you for months! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## Totals (65 items)
 
 | | ✓ | ~ | ⟳ | ✗ |
 |---|---|---|---|---|
 | Translated | 65 | | | 0 |
-| Sense | 50 | 4 | 2 | 9 |
+| Sense | 52 | 4 | | 9 |
 | Erased, no ghost | 65 | | | 0 |
-| Background kept | 63 | | 2 | 0 |
-| Fits | 63 | 1 | 1 | 0 |
+| Background kept | 64 | 1 | | 0 |
+| Fits | 64 | 1 | | 0 |
 | Outline matches | 62 | 3 | | 0 |
 
 Skipped: 0 on every page.
 
 Every ✗ in Sense is the 4b model: a misread (ぱらぱら, ざぶん, 俺), a wrong subject or gist, or a
-name transliterated (Rea, Shichimi). E35/E36/E38 are at 100% on translated, erased, background
-and fits once the ⟳ items are confirmed by a full run. They are not at 100% on sense.
+name transliterated (Rea, Shichimi). The one ~ in Background is E36P03 #5, where the SFX crossed a
+light outline in the art and the inpaint can't redraw the line.
 
-## Needs a full run when the PC is free
+## The items that waited on a full run
 
-Translate with the model unloaded after each page and a pause between pages:
+- E01P01 #4: GLUG GLUG. ✓
+- E36P03 #3: "Be quiet", no comma. ✓
+- E36P03 #5: crystal glow kept and FSSSH centred. Two of the three "…" dots were left behind
+  (small blurred dots fail the colour test); fixed in baf00bc and confirmed on the page.
+- E38P02 #2: the hand is untouched. ✓
+- E38P01 #5: the prompt's くっ → Ngh! does not take with 4b. Left as ~.
+
+## Running it again
 
     node build.mjs
     node tools/quality/run.mjs --unload --pause=30          (all pages, gently)
     node tools/quality/run.mjs E36P03 --unload              (one page)
     python tools/quality/sheet.py E36P03                    (per-item sheet for checking)
 
-Then check the ⟳ items above:
-- E01P01 #4 should be GLUG GLUG.
-- E36P03 #3 should be "Be quiet" with no comma.
-- E36P03 #5: the crystal glow should be kept and FSSSH centred on the original.
-- E38P02 #2: the hand should be untouched.
-- E38P01 #5: does the prompt's くっ → Ngh! take?
-
-Also run the extension e2e (`node tools/e2e.mjs`, with `tools/e2e-setup.mjs` first if it needs it): the lettering changes touch what the extension draws.
+The extension e2e (`node tools/e2e.mjs`) checks the same pipeline in Edge. It uses whatever model
+the extension picks: with nothing chosen that is qwen3-vl:4b-instruct when installed (5143560;
+before that, the most recently downloaded qwen3-vl). With CC Wild Words installed the extension
+letters dialogue in it, which the harness does not.
