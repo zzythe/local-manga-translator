@@ -100,6 +100,8 @@
       if (url) link.href = url; else link.hidden = !Object.values(STORES).some(Boolean) ? false : true;
     }
     const compare = document.getElementById('compare');
+    // Until the comparison images are published, show the hero without them.
+    compare.querySelectorAll('img').forEach(img => img.addEventListener('error', () => { compare.hidden = true; }));
     compare.querySelector('input').addEventListener('input', e => compare.style.setProperty('--split', e.target.value + '%'));
   </script>
 </body>
