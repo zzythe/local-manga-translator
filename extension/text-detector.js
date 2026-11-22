@@ -1,4 +1,4 @@
-// The local text detector: an RT-DETR model (ogkalu/comic-text-and-bubble-detector, Apache-2.0)
+// The local helper models. The text detector: an RT-DETR model (ogkalu/comic-text-and-bubble-detector, Apache-2.0)
 // that boxes speech bubbles, the text in them and text on the artwork. Shared by the extension's
 // offscreen document (onnxruntime-web) and the quality harness (onnxruntime-node).
 export const DETECTOR_SIZE = 640;
@@ -23,4 +23,20 @@ export async function detectText(ort, session, rgba, width, height) {
     found.push({label: LABELS[Number(out.labels.data[i])] || 'other', score, x: x0, y: y0, width: x1 - x0, height: y1 - y0});
   }
   return found;
+}
+
+// Repaints the artwork under erased lettering with MI-GAN (Picsart AI Research, MIT): rgba is
+// the crop as RGBA bytes, mask is 1 where the lettering was. Returns the crop's new RGBA bytes.
+export async function inpaintImage(ort, session, rgba, mask, width, height) {
+  const n = width * height, image = new Uint8Array(3 * n), keep = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    image[i] = rgba[i * 4]; image[n + i] = rgba[i * 4 + 1]; image[2 * n + i] = rgba[i * 4 + 2];
+    keep[i] = mask[i] ? 0 : 255;
+  }
+  const out = await session.run({image: new ort.Tensor('uint8', image, [1, 3, height, width]), mask: new ort.Tensor('uint8', keep, [1, 1, height, width])});
+  const result = out.result.data, filled = new Uint8ClampedArray(4 * n);
+  for (let i = 0; i < n; i++) {
+    filled[i * 4] = result[i]; filled[i * 4 + 1] = result[n + i]; filled[i * 4 + 2] = result[2 * n + i]; filled[i * 4 + 3] = 255;
+  }
+  return filled;
 }

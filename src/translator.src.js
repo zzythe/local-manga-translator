@@ -2193,7 +2193,10 @@
       for (const r of readings) {
         const e = r.kind === 'loose' ? {...r.crop, ...r.plan} : r.erase;
         const img = wctx.getImageData(e.x, e.y, e.width, e.height);
-        applyErase(img, e);
+        // Lettering on the artwork: the inpainting model, when there is one, redraws the art
+        // under it (bars, splashes, textures) far better than smoothing it over.
+        const filled = r.kind === 'loose' && !e.solid && env.inpaint && await repaint(img, e.mask);
+        if (!filled) applyErase(img, e);
         const patch = env.makeCanvas(e.width, e.height);
         patch.getContext('2d').putImageData(img, 0, 0);
         place(patch, e);
@@ -2337,6 +2340,26 @@
       return texts;
     }
 
+    // The artwork under a sound effect, repainted by env.inpaint. The mask is widened a little: the
+    // model needs the soft edge of the letters gone too. False if there is no model to do it.
+    async function repaint(img, mask) {
+      const {width: w, height: h} = img, wide = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        if (!mask[y * w + x]) continue;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+          const X = x + dx, Y = y + dy;
+          if (X >= 0 && Y >= 0 && X < w && Y < h && dx * dx + dy * dy <= 4) wide[Y * w + X] = 1;
+        }
+      }
+      const filled = await env.inpaint(img, wide).catch(() => null);
+      if (!filled) return false;
+      for (let i = 0; i < w * h; i++) {
+        if (wide[i]) { img.data[i * 4] = filled[i * 4]; img.data[i * 4 + 1] = filled[i * 4 + 1]; img.data[i * 4 + 2] = filled[i * 4 + 2]; }
+        img.data[i * 4 + 3] = wide[i] ? 255 : 0;
+      }
+      return true;
+    }
+
     async function translateReadings(readings, s, ask) {
       const terms = parseTerms(s.terms);
       const key = r => `${s.target}\u0000${s.terms || ''}\u0000${r.original}`;
@@ -2469,8 +2492,11 @@
       }
       return best;
     };
+    // Following the bubble's shape is better, unless the shape was measured badly and only fits
+    // the text tiny: then the plain box it was found in.
     const shaped = !!r.span;
-    return (shaped && search(true, false)) || search(false, false) || (shaped && search(true, true)) || search(false, true) || (() => {
+    const better = (a, b) => !a ? b : !b || a.size >= b.size * 0.8 ? a : b;
+    return better(shaped && search(true, false), search(false, false)) || better(shaped && search(true, true), search(false, true)) || (() => {
       setSize(MIN);
       const lines = wrapText(measure, text, box.width);
       return {size: MIN, lines, font: family, rows: lines.map(() => ({cx: box.x + box.width / 2, width: box.width})),
@@ -2754,6 +2780,19 @@
       const answer = await background({type: 'detect', image: c.toDataURL('image/jpeg', 0.95), width: crop.width, height: crop.height}).catch(() => null);
       return Array.isArray(answer?.found) ? answer.found : null;
     },
+    // The local inpainting model, run by the extension: the new RGBA bytes of img with the masked
+    // pixels repainted, or null (off, still downloading or failed).
+    async inpaint(img, mask) {
+      if (!EXTENSION || !loadSettings().detector) return null;
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      c.getContext('2d').putImageData(img, 0, 0);
+      let bin = '';
+      for (let i = 0; i < mask.length; i += 0x8000) bin += String.fromCharCode(...mask.subarray(i, i + 0x8000));
+      const answer = await background({type: 'inpaint', image: c.toDataURL('image/png'), mask: btoa(bin), width: img.width, height: img.height}).catch(() => null);
+      if (typeof answer?.pixels !== 'string') return null;
+      const bytes = Uint8Array.from(atob(answer.pixels), ch => ch.charCodeAt(0));
+      return bytes.length === img.data.length ? bytes : null;
+    },
     async encode(canvas, mime = 'image/jpeg', quality = 0.9) {
       const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));
       if (!blob) throw new Error('The browser could not encode the image.');
@@ -2903,7 +2942,7 @@
           <label class="check"><input type="checkbox" id="always"><span id="always-label">Always translate on this site</span></label>
           <div class="field"><label for="font">Lettering</label><select id="font"><option value="auto">Best installed</option><option value="bundled">Comic Neue</option></select></div>
           <label class="check"><input type="checkbox" id="uppercase"><span>Letter in capitals (English, Spanish, Portuguese…)</span></label>
-          <label class="check" id="detector-row"><input type="checkbox" id="detector"><span>Find bubbles with the fast detector (a 44 MB download, once)</span></label>
+          <label class="check" id="detector-row"><input type="checkbox" id="detector"><span>Find bubbles and repaint artwork with local models (a 72 MB download, once)</span></label>
           <label class="terms"><span>Names and terms, one per line</span>
             <textarea id="terms" rows="3" spellcheck="false" placeholder="シチミ = Shichimi"></textarea></label>
         </div>

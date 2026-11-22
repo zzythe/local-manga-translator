@@ -4,6 +4,7 @@
 |---|---|---|
 | [ExtPay.js](https://github.com/Glench/ExtPay) | `ExtPay.js` in the extension (payments) | MIT |
 | [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | `ort/` in the extension, runs the text detector | MIT |
+| [MI-GAN](https://github.com/Picsart-AI-Research/MI-GAN) by Picsart AI Research ([ONNX pipeline](https://huggingface.co/andraniksargsyan/migan)) | downloaded once by the extension from Hugging Face; repaints artwork under sound effects | MIT |
 | [comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) by ogkalu (RT-DETR, int8) | downloaded once by the extension from Hugging Face; not bundled | Apache 2.0 |
 | [Comic Neue](https://github.com/crozynski/comicneue) Bold | bundled font for dialogue | SIL Open Font License 1.1 |
 | [Kaushan Script](https://fonts.google.com/specimen/Kaushan+Script), subset and renamed MLT Brush Crisp | bundled font for thin sound effects | SIL Open Font License 1.1 |

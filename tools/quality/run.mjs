@@ -40,7 +40,15 @@ await page.route('http://quality.test/**', route => {
 });
 
 // --detector=path/to/detector.onnx: the local text detector, run here with onnxruntime-node.
+// --inpainter=path/to/migan_pipeline_v2.onnx: the local inpainting model, likewise.
 let detector = null;
+if (option('inpainter')) {
+  const ort = await import('onnxruntime-node');
+  const {inpaintImage} = await import('data:text/javascript,' + encodeURIComponent(readFileSync(join(root, 'extension/text-detector.js'), 'utf8')));
+  const session = await ort.InferenceSession.create(option('inpainter'));
+  await page.exposeFunction('inpaintImage', async (rgba, mask, w, h) =>
+    Buffer.from(await inpaintImage(ort, session, Buffer.from(rgba, 'base64'), Buffer.from(mask, 'base64'), w, h)).toString('base64'));
+}
 if (option('detector')) {
   const ort = await import('onnxruntime-node');
   // An ES module for the extension, in a CommonJS package: loaded from its source text.
@@ -104,6 +112,9 @@ for (const name of pages) {
       for (let i = 0; i < rgba.length; i += 0x8000) bin += String.fromCharCode(...rgba.subarray(i, i + 0x8000));
       return globalThis.detectText(btoa(bin), crop.width, crop.height);
     };
+    const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+    if (globalThis.inpaintImage) env.inpaint = async (img, mask) =>
+      Uint8Array.from(atob(await globalThis.inpaintImage(b64(img.data), b64(mask), img.width, img.height)), c => c.charCodeAt(0));
     const pipeline = M.createPipeline(env);
     const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j))), report: () => {}};
     const out = await pipeline.translate(img, {source, target: 'English', uppercase: true, terms}, job);

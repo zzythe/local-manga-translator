@@ -260,7 +260,7 @@ let detectorPage = null;
 function toDetector(message) {
   if (!chrome.offscreen) return import('./detector.js').then(m => m.handle(message));
   detectorPage ??= chrome.offscreen.hasDocument().then(open => open || chrome.offscreen.createDocument({
-    url: 'detector.html', reasons: ['WORKERS'], justification: 'Runs the text detector that finds speech bubbles on comic pages.'
+    url: 'detector.html', reasons: ['WORKERS'], justification: 'Runs the models that find speech bubbles and repaint artwork under sound effects.'
   })).finally(() => { detectorPage = null; });
   return detectorPage.then(() => chrome.runtime.sendMessage({...message, target: 'detector'}));
 }
@@ -269,7 +269,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.target) return false; // for the detector page
   const answer = promise => { promise.then(reply, error => reply({error: String(error?.message || error)})); return true; };
   switch (message?.type) {
-    case 'detect': case 'prepare-detector': return answer(toDetector({...message, type: message.type === 'detect' ? 'detect' : 'prepare'}));
+    case 'detect': case 'inpaint': return answer(toDetector(message));
+    case 'prepare-detector': return answer(toDetector({type: 'prepare'}));
     case 'plan': return answer(plan());
     case 'used': return answer(recordPage(message.image));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));

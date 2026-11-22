@@ -41,8 +41,8 @@ Translates the text in comic images on web pages the user chooses, using an AI m
 | `storage` | Saves the user's language and model settings, sites set to "always translate", the free plan's daily page count, and Pro status. |
 | `contextMenus` | Adds "Translate this page" to the right-click menu. |
 | `declarativeNetRequestWithHostAccess` | Sets the referrer on the extension's own image downloads (many comic sites refuse images without it) and lets the extension's background requests reach the user's local Ollama server, which otherwise rejects browser extensions. The rules apply only to requests made by the extension itself, never to web pages. |
-| `offscreen` | Runs the text detector that finds speech bubbles in an offscreen page shared by all tabs. The background service worker can't start the threads it uses. |
-| Remote code | No. All code is in the package. The text detector's model (44 MB of weights, no code) is downloaded once from Hugging Face. |
+| `offscreen` | Runs two small local models (one finds speech bubbles, one repaints artwork under sound effects) in an offscreen page shared by all tabs. The background service worker can't start the threads they use. |
+| Remote code | No. All code is in the package. The two models' weights (72 MB, no code) are downloaded once from Hugging Face. |
 
 ## Data usage (Chrome privacy tab)
 - Data collected: **none** by the developer. Check only "Financial and payment information" if the form asks about data handled by a payment processor: payments are processed by ExtensionPay/Stripe when the user buys Pro.

@@ -56,7 +56,7 @@ function render() {
     $('model-download').disabled = true;
   } else if (vision.length && !downloading && !choosing) {
     setState('step-model', 'done', 'Ready');
-    // Fetch the text detector now (44 MB, once), so the first page doesn't wait for it.
+    // Fetch the helper models now (72 MB, once), so the first page doesn't wait for them.
     if (!detectorAsked) { detectorAsked = true; ask({type: 'prepare-detector'}).catch(() => {}); }
     $('model-choices').hidden = true; $('model-download').hidden = true; $('model-progress').hidden = true;
     $('model-ok').textContent = `Installed: ${vision.map(m => `${m.name} (${gb(m.size)})`).join(', ')}.`;

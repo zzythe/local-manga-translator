@@ -681,3 +681,13 @@ test('detector boxes of bubble text become regions of the page; its boxes on the
   assert.deepEqual([regions[0].x, regions[0].y, regions[0].width, regions[0].height], [200, 1100, 160, 80]);
   assert.equal(regions[0].original, '');
 });
+
+test('a badly measured bubble shape does not shrink the lettering: the plain box is used', () => {
+  // Characters 0.6 of the font size wide.
+  const ctx = {font: '', measureText(s) { return {width: s.length * 0.6 * parseFloat(this.font.split(' ')[1])}; }, save() {}, restore() {}};
+  const r = {text: '...Hmm, maybe I still need more.', layout: {x: 0, y: 0, width: 120, height: 80}, maxSize: 18, centre: 40,
+    // The shape leaves only a small patch in the middle free.
+    span: (from, to) => from >= 20 && to <= 60 ? {left: 30, right: 90} : null};
+  const plan = t.fitText(ctx, r, {target: 'English', uppercase: true}, 1200);
+  assert.ok(plan.size >= 12, `lettered at ${plan.size}px`);
+});
