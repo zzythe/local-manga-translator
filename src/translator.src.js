@@ -2773,6 +2773,8 @@
 
   // The same code runs as a browser extension (content script) and as a userscript.
   const EXTENSION = typeof GM_xmlhttpRequest === 'undefined' && typeof chrome !== 'undefined' && !!chrome.runtime?.id;
+  // The extension's own sample page is free: it only shows what the translator does.
+  const COUNTED = EXTENSION && /^https?:$/.test(location.protocol);
   // One copy per tab, even when the extension injects the file again.
   if (EXTENSION) {
     if (globalThis.__mangaTranslatorLoaded) return;
@@ -3595,7 +3597,7 @@
         }
         // Free plan: pages already translated (above) are free to show again, and so is a page
         // translated again today (other settings, other names); new ones count.
-        if (EXTENSION && !counted.has(page.source)) {
+        if (COUNTED && !counted.has(page.source)) {
           const p = await refreshPlan();
           if (pages.get(img) !== page || stopped) return;
           // (A page being read ahead beside this one counts too.)
@@ -3631,7 +3633,7 @@
                 .then(() => requestAnimationFrame(() => removeOverlay(page, overlay, true)));
             }
             page.status = 'done'; done++;
-            if (EXTENSION && !counted.has(page.source)) {
+            if (COUNTED && !counted.has(page.source)) {
               counted.add(page.source);
               background({type: 'used', image: {id: pageCache.hash(page.source), strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
             }

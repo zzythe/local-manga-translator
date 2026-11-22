@@ -86,7 +86,7 @@ try {
   // Page 2 has a sound effect on the artwork (シュウウ…).
   check('sound effect repainted by the inpainting model', stats?.repaints >= 1, JSON.stringify(stats));
   let plan = await sw.evaluate(() => plan());
-  check('meter counted 2 pages', plan.used === 2, JSON.stringify(plan));
+  check('sample pages are free', plan.used === 0, JSON.stringify(plan));
 
   // 2b. The settings panel.
   let {settings} = await sw.evaluate(() => chrome.storage.local.get('settings'));
@@ -129,7 +129,7 @@ try {
   check('hotlink-protected cross-origin image translated', true, `referer sent: ${refererSeen}`);
   await reader.screenshot({path: join(out, 'reader.png')});
   plan = await sw.evaluate(() => plan());
-  check('meter counted 3 pages', plan.used === 3, JSON.stringify(plan));
+  check('meter counted 1 page', plan.used === 1, JSON.stringify(plan));
   const meterText = await reader.evaluate(() => document.querySelector('manga-translator') ? 'present' : 'missing');
   check('translator control present on the site', meterText === 'present');
 
@@ -137,7 +137,7 @@ try {
   await reader.reload();
   await reader.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 60000});
   plan = await sw.evaluate(() => plan());
-  check('reload keeps the translation on and free', plan.used === 3, JSON.stringify(plan));
+  check('reload keeps the translation on and free', plan.used === 1, JSON.stringify(plan));
 
   // 4b. Images of a long strip count as half a page each.
   const strip = await ctx.newPage();
@@ -146,7 +146,7 @@ try {
   await strip.waitForFunction(() => [...document.images].every(i => i.src.startsWith('blob:')), null, {timeout: 300000});
   await strip.waitForTimeout(500);
   plan = await sw.evaluate(() => plan());
-  check('strip images count as half a page', plan.used === 4, JSON.stringify(plan));
+  check('strip images count as half a page', plan.used === 2, JSON.stringify(plan));
   await strip.close();
 
   // 5. At the daily limit, new pages wait and the control says why.
@@ -165,9 +165,8 @@ try {
   await limited.screenshot({path: join(out, 'limit.png')});
 
   // 5b. Names entered on the sample page belong to it alone. Changing them translates its pages
-  // again, shown bubble by bubble in the page beside each image, and even at the limit they are
-  // translated and not counted again: they were counted today (before the reload, so the
-  // background has to know).
+  // again, shown bubble by bubble in the page beside each image. The sample page is free, so this
+  // works at the limit too.
   await demo.bringToFront();
   const before = await demo.evaluate(() => [...document.images].map(i => i.src));
   await demo.evaluate(() => {
@@ -187,7 +186,10 @@ try {
   const again = await demo.waitForFunction(old => [...document.images].every((i, k) => i.src.startsWith('blob:') && i.src !== old[k]) &&
     !document.querySelector('manga-translator-bubbles'), before, {timeout: 300000}).then(() => true, () => false);
   plan = await sw.evaluate(() => plan());
-  check('translated again at the limit with other names, not counted again', again && plan.used === plan.limit, JSON.stringify(plan));
+  check('sample page translated again at the limit with other names, not counted', again && plan.used === plan.limit, JSON.stringify(plan));
+  // A web page translated again the same day (other names, a reload, another tab) is counted once.
+  const twice = await sw.evaluate(async () => [(await recordPage({id: 'e2e-page'})).used, (await recordPage({id: 'e2e-page'})).used]);
+  check('a page translated again the same day counts once', twice[1] === twice[0], JSON.stringify(twice));
 
   // 6. Pro unlocks it straight away.
   await sw.evaluate(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
