@@ -169,6 +169,16 @@ async function recordPage() {
   return plan();
 }
 
+// Straight to the Pro plan's checkout when it exists; otherwise ExtensionPay's plan page.
+async function openCheckout() {
+  try {
+    const plans = await extpay.getPlans();
+    if (plans.some(p => p.nickname === CONFIG.proPlan)) { extpay.openPaymentPage(CONFIG.proPlan); return {ok: true}; }
+  } catch {}
+  extpay.openPaymentPage();
+  return {ok: true};
+}
+
 extpay.onPaid.addListener(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
 
 /* ------------------------------------------------------------------------------------------
@@ -239,7 +249,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     case 'plan': return answer(plan());
     case 'used': return answer(recordPage());
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));
-    case 'buy': extpay.openPaymentPage(); reply({ok: true}); return false;
+    case 'buy': return answer(openCheckout());
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;
     case 'welcome': return answer(openWelcome(message.hash).then(() => ({ok: true})));
     case 'ollama': return answer(ollamaStatus());
