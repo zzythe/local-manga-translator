@@ -43,8 +43,10 @@ await page.exposeFunction('askOllama', async job => {
   const response = await fetch('http://127.0.0.1:11434/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(job)});
   const body = await response.json();
+  const s = ns => Math.round((ns || 0) / 1e6);
   calls.push({ms: Date.now() - started, kind: job.messages[0].content.slice(0, 40), images: job.messages[1].images?.length || 0,
-    output: body?.message?.content});
+    loadMs: s(body?.load_duration), promptTokens: body?.prompt_eval_count, promptMs: s(body?.prompt_eval_duration),
+    outputTokens: body?.eval_count, outputMs: s(body?.eval_duration), output: body?.message?.content});
   return body;
 });
 await page.goto('http://quality.test/');
