@@ -12,7 +12,7 @@
     <img src="icons/icon128.png" alt="" width="56" height="56">
     <div>
       <h1>Local Manga Translator</h1>
-      <p class="lede">Translates comics right on the page. The AI runs on your own computer, so nothing you read is uploaded anywhere.</p>
+      <p class="lede">Translates comics on the page. The model runs on your own computer, so nothing you read is uploaded.</p>
     </div>
   </header>
 
@@ -31,12 +31,12 @@
           <p>The translator uses <strong>Ollama</strong>, a free program that runs AI models on your PC.</p>
           <div class="when-missing">
             <a class="button primary" id="engine-download" href="https://ollama.com/download" target="_blank" rel="noopener">Download Ollama</a>
-            <p class="small" id="engine-hint">Run the file you downloaded and follow its installer. This page notices when it's ready, with no need to come back and click anything.</p>
+            <p class="small" id="engine-hint">Run the installer you downloaded. This page notices by itself when Ollama is ready.</p>
             <div class="command" id="engine-linux" hidden>
               <code>curl -fsSL https://ollama.com/install.sh | sh</code>
               <button class="button small-button" id="copy-linux">Copy</button>
             </div>
-            <p class="small muted">Already installed? Open <strong>Ollama</strong> from the Start menu (or Applications on a Mac) so it's running.</p>
+            <p class="small muted">Already installed? Start Ollama from the Start menu or Applications.</p>
           </div>
           <p class="when-done ok" id="engine-ok"></p>
         </div>
@@ -46,7 +46,7 @@
         <div class="num" aria-hidden="true">2</div>
         <div class="body">
           <div class="head"><h2>Download the translation model</h2><span class="pill" id="model-pill">Waiting for step 1</span></div>
-          <p>This is the part that reads and translates the pages. It downloads once and stays on your PC.</p>
+          <p>The model reads and translates the pages. It downloads once.</p>
           <fieldset class="choices" id="model-choices">
             <legend class="sr">Model size</legend>
             <label class="choice"><input type="radio" name="model" value="qwen3-vl:4b-instruct" checked>
@@ -71,7 +71,7 @@
         <div class="num" aria-hidden="true">3</div>
         <div class="body">
           <div class="head"><h2>Translate something</h2></div>
-          <p>Open any manga, manhwa or manhua reader, then click the translator's button in your toolbar (pin it with the puzzle-piece menu so it's always there). You can also right-click the page, or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>.</p>
+          <p>Open a manga, manhwa or manhua reader and click the translator's button in the toolbar. Pin it from the extensions menu to keep it there. You can also right-click the page or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>.</p>
           <a class="button" id="try-demo" href="demo.html">Try it on a sample page</a>
           <p class="small muted">The first page takes longer while the model loads. After that, pages are translated ahead of you as you scroll.</p>
         </div>
@@ -83,18 +83,18 @@
       <div id="plan-free" hidden>
         <p class="meter-line"><strong id="plan-left">30</strong> of <span id="plan-limit">30</span> free pages left today</p>
         <div class="bar"><i id="plan-fill"></i></div>
-        <p>The free plan translates <span class="limit-text">30</span> new pages a day, which comes back every midnight. Pages you've already translated show again for free.</p>
+        <p>The free plan translates <span class="limit-text">30</span> new pages a day and resets at midnight. Pages you've already translated don't count.</p>
         <div class="pro-box">
           <div>
             <h3>Pro: unlimited pages</h3>
-            <p class="muted">One payment of <span id="price">$6.99</span>, yours to keep. It supports development, and the AI still runs on your PC.</p>
+            <p class="muted">A one-time payment of <span id="price">$6.99</span>.</p>
           </div>
           <button class="button primary" id="buy">Get unlimited</button>
         </div>
         <p class="small"><button class="link" id="login">Already paid? Restore your purchase</button></p>
       </div>
       <div id="plan-pro" hidden>
-        <p class="ok">Pro is active: unlimited pages. Thank you for supporting the translator!</p>
+        <p class="ok">Pro is active. Thanks for your support.</p>
         <p class="small"><button class="link" id="manage">Payment details</button></p>
       </div>
     </section>
@@ -102,7 +102,7 @@
     <section class="card faq" aria-labelledby="faq-title">
       <h2 id="faq-title">Questions</h2>
       <details><summary>Is anything uploaded?</summary>
-        <p>No. Pages are read by the model on your computer through Ollama. The extension only connects to the comic site you're reading (to load its images), to your own PC, and to ExtensionPay if you buy Pro.</p></details>
+        <p>No. Pages are read by the model on your computer through Ollama. The extension only connects to the comic site you're reading, to Ollama on your PC, and to ExtensionPay if you buy Pro.</p></details>
       <details><summary>Why does it need access to all websites?</summary>
         <p>Manga readers load their pages from many different image servers. To translate a page, the extension has to download the same image you're looking at. It does nothing on a site until you turn it on there.</p></details>
       <details><summary>It's slow</summary>
@@ -110,7 +110,7 @@
       <details><summary>Which languages?</summary>
         <p>From Japanese, Korean, Chinese, English, Spanish and Portuguese into English and 14 other languages. Choose them with the sliders button on the translator.</p></details>
       <details><summary>How do I remove everything?</summary>
-        <p>Remove the extension from your browser, then uninstall Ollama from Windows Settings → Apps (or drag it to the Trash on a Mac). That also deletes the model.</p></details>
+        <p>Remove the extension from your browser, then uninstall Ollama from Windows Settings → Apps, or drag it to the Trash on a Mac. On Windows that also deletes the model.</p></details>
     </section>
 
     <footer class="small muted">
