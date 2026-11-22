@@ -2,7 +2,7 @@
 
 # Local Manga Translator
 
-Local Manga Translator is an open source browser extension that translates manga, manhwa and manhua in place. The text is read and translated by a vision model running in [Ollama](https://ollama.com) on your own machine.
+Local Manga Translator is a browser extension that translates manga, manhwa and manhua in place. The text is read and translated by a vision model running in [Ollama](https://ollama.com) on your own machine.
 
 ## Usage
 

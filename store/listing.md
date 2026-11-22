@@ -6,7 +6,7 @@ Use the same text on the Chrome Web Store, Microsoft Edge Add-ons and Firefox Ad
 Local Manga Translator
 
 ## Short description (Chrome: 132 characters max)
-Translates manga, manhwa and manhua in place, using a vision model running on your own computer. Open source.
+Translates manga, manhwa and manhua in place, using a vision model running on your own computer.
 
 ## Category
 Chrome: **Tools**. Edge: **Productivity**. Firefox: **Language Support**.
