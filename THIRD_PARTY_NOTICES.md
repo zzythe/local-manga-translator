@@ -3,8 +3,10 @@
 | Component | Where | Licence |
 |---|---|---|
 | [ExtPay.js](https://github.com/Glench/ExtPay) | `ExtPay.js` in the extension (payments) | MIT |
-| [Comic Neue](https://github.com/crozynski/comicneue) Bold | bundled lettering font | SIL Open Font License 1.1 |
-| [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy and contributors, episodes 35 and 36 (Japanese) | sample pages in `extension/demo/` and test pages in `tools/quality/pages/` | CC BY 4.0 |
+| [Comic Neue](https://github.com/crozynski/comicneue) Bold | bundled font for dialogue | SIL Open Font License 1.1 |
+| [Kaushan Script](https://fonts.google.com/specimen/Kaushan+Script), subset and renamed MLT Brush Crisp | bundled font for thin sound effects | SIL Open Font License 1.1 |
+| [Knewave](https://fonts.google.com/specimen/Knewave) | bundled font for heavy sound effects | SIL Open Font License 1.1 |
+| [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy and contributors, Japanese pages from episodes 1, 35, 36 and 38 | sample pages in `extension/demo/` (episodes 35 and 36) and test pages in `tools/quality/pages/` | CC BY 4.0 |
 | [Ollama](https://ollama.com) | installed separately by the user; not bundled | MIT |
 | [Qwen3-VL](https://ollama.com/library/qwen3-vl) models | downloaded by the user through Ollama; not bundled | Apache 2.0 |
 
