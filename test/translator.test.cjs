@@ -691,3 +691,29 @@ test('a badly measured bubble shape does not shrink the lettering: the plain box
   const plan = t.fitText(ctx, r, {target: 'English', uppercase: true}, 1200);
   assert.ok(plan.size >= 12, `lettered at ${plan.size}px`);
 });
+
+test('lettering breaks into lines shaped like the original text, centred where it sat, not one long line', () => {
+  const ctx = {font: '', measureText(s) { return {width: s.length * 0.6 * parseFloat(this.font.split(' ')[1])}; }, save() {}, restore() {}};
+  // Two lines of original text, 150 × 60, on open paper that runs on well below and to the right.
+  const source = {x: 100, y: 40, width: 150, height: 60};
+  const r = {text: 'I was such a fool!', layout: {x: 80, y: 20, width: 300, height: 200}, maxSize: 24, source, anchor: {x: 175, y: 70}};
+  const plan = t.fitText(ctx, r, {target: 'English', uppercase: true}, 1200);
+  assert.equal(plan.size, 24);
+  // At 24 px the whole line (≈ 260 px) would fit the paper, but the original was two lines.
+  assert.deepEqual([...plan.lines], ['I WAS SUCH', 'A FOOL!']);
+  const [x, y, w, h] = t.letteredBox(plan);
+  assert.ok(Math.abs(x + w / 2 - 175) < 2 && Math.abs(y + h / 2 - 70) < 2, `centred at ${x + w / 2}, ${y + h / 2}`);
+  // Without the original's shape, the old way: as few lines as fit.
+  const plain = t.fitText(ctx, {...r, source: undefined, anchor: undefined}, {target: 'English', uppercase: true}, 1200);
+  assert.equal(plain.lines.length, 1);
+});
+
+test('a bit of artwork at the end of a block, lined up with no line of text, is not part of it', () => {
+  const img = page(400, 260, [255, 255, 255]);
+  glyphs(img, 150, 40, 1, 1);          // 私
+  glyphs(img, 110, 62, 6, 1);          // バカだった!
+  // A dark corner of the art below and to the left, as far as one line further down.
+  for (let y = 86; y < 100; y++) for (let x = 92; x < 102; x++) set(img, x, y, [30, 60, 90]);
+  const [b] = t.findBubbleText(img.data, img.width, img.height);
+  assert.ok(b && b.y + b.height <= 82 && b.x >= 106, JSON.stringify(b && [b.x, b.y, b.width, b.height]));
+});

@@ -308,7 +308,7 @@
    * there. Lines run across the block (horizontal writing) or down it (vertical), whichever makes
    * them longer.
    */
-  function linesOf(cluster) {
+  function linesOf(cluster, direction) {
     const linesOn = vertical => {
       const lo = g => vertical ? g.x : g.y, hi = g => vertical ? g.x + g.width : g.y + g.height;
       const sorted = cluster.slice().sort((a, b) => lo(a) - lo(b)), lines = [];
@@ -323,6 +323,7 @@
       }
       return lines;
     };
+    if (direction !== undefined) return {lines: linesOn(direction), vertical: direction};
     const rows = linesOn(false), columns = linesOn(true);
     const mean = lines => lines.reduce((a, l) => a + l.long, 0) / lines.length;
     return mean(columns) > mean(rows) ? {lines: columns, vertical: true} : {lines: rows, vertical: false};
@@ -411,6 +412,36 @@
       }
     }
     return [cluster];
+  }
+
+  /**
+   * A line at either end of a block that holds at most one character and lines up with the
+   * lettering nowhere is artwork caught beside it (a corner of the art where a bubble meets the
+   * panel edge), not a line of text: dropped, with anything further out.
+   */
+  function trimStrayLines(piece, typical) {
+    const real = g => Math.max(g.width, g.height) >= typical * 0.5;
+    // Which way the text runs, from its characters alone: specks make short lines either way.
+    const chars = piece.filter(real);
+    if (chars.length < 3) return piece;
+    const {lines} = linesOf(piece, linesOf(chars).vertical);
+    const core = lines.map((l, i) => l.glyphs.filter(real).length >= 2 ? i : -1).filter(i => i >= 0);
+    if (!core.length) return piece;
+    // Walking out from the lines of text: dots stay, a character that lines up with the last
+    // line kept stays, anything else ends the block (a sliver of an outline or of the art too).
+    const sliver = g => Math.max(g.width, g.height) >= 3 * Math.min(g.width, g.height) && Math.min(g.width, g.height) <= 2;
+    const reach = (start, step) => {
+      let edge = start, ref = lines[start];
+      for (let i = start + step; i >= 0 && i < lines.length; i += step) {
+        const l = lines[i];
+        if (l.glyphs.some(real) ? !lined(l.start, l.end, ref.start, ref.end, typical) : l.glyphs.every(sliver)) break;
+        edge = i;
+        if (l.glyphs.some(real)) ref = l;
+      }
+      return edge;
+    };
+    const from = reach(core[0], -1), to = reach(core[core.length - 1], 1);
+    return from === 0 && to === lines.length - 1 ? piece : lines.slice(from, to + 1).flatMap(l => l.glyphs);
   }
 
   function findBubbleText(rgba, width, height, opts = {}) {
@@ -599,7 +630,7 @@
           }
         }
         if (cluster.length < 3) continue;
-        for (const piece of splitMisaligned(cluster, typical)) {
+        for (const piece of splitMisaligned(cluster, typical).map(p => trimStrayLines(p, typical))) {
           const bounds = union(piece);
           if (bounds.width * bounds.height > space.area * 1.4) continue;
           // The block's own character size: one paper region can hold lettering of several sizes.
@@ -764,6 +795,8 @@
     // outline itself). Grey anti-aliasing lets the row continue.
     const ours = (xx, yy) => {
       if (!own(xx, yy)) return false;
+      // The lettering's own box: its letters, and specks of ink too small to count as one.
+      if (xx >= x && xx < right && yy >= y && yy < bottom) return true;
       const i = yy * width + xx;
       if (labels[i] === id || (!labels[i] && cls[i] !== INK)) return true;
       // Lettering, and the paper inside its counters (口).
@@ -2209,9 +2242,11 @@
       const jobs = readings.map(r => {
         if (r.kind !== 'loose') {
           const own = pageTypical ? clamp(r.typical, pageTypical * 0.85, pageTypical * 1.6) : r.typical;
+          // Centred where the original was; in a closed bubble, at the height of the bubble's middle.
+          const source = toImage(r), centre = r.shape ? r.shape.centre / scale : undefined;
           return {r, own, text: r.translation, layout: toImage(r.layout), span: r.shape ? shapeSpan(r.shape, scale) : null,
-            centre: r.shape ? r.shape.centre / scale : undefined, maxSize: own * 1.05 / scale, font: DIALOGUE_FONT,
-            color: r.erase.color, outline: null};
+            centre, maxSize: own * 1.05 / scale, font: DIALOGUE_FONT, color: r.erase.color, outline: null, source,
+            anchor: {x: source.x + source.width / 2, y: r.enclosed && centre !== undefined ? centre : source.y + source.height / 2}};
         }
         // Lettering on the artwork: where the original was, never wider than it (turned
         // horizontal) and never outside its panel.
@@ -2239,7 +2274,8 @@
             color: plan.color, outline: plan.outline, weight: plan.style.weight, rotate: {angle: tilt, cx: cx / scale, cy: cy / scale}};
         }
         return {r, text: r.translation, layout: toImage(layout), span: shapeSpan(rows, scale), centre: (t.y + t.height / 2) / scale,
-          maxSize: size / scale, font, color: plan.color, outline: plan.outline, weight: sfx ? plan.style?.weight : undefined};
+          maxSize: size / scale, font, color: plan.color, outline: plan.outline, weight: sfx ? plan.style?.weight : undefined,
+          source: toImage(t), anchor: {x: (t.x + t.width / 2) / scale, y: (t.y + t.height / 2) / scale}};
       });
       const plans = jobs.map(j => fitText(octx, j, s, image.width));
       // A roomy bubble does not get bigger lettering than its neighbours with the same original size.
@@ -2258,6 +2294,8 @@
         drawText(octx, plan, j);
         debug.push({kind: r.kind, original: r.original, translation: r.translation, sfx: !!r.sfx,
           box: [r.x, r.y, r.width, r.height].map(v => Math.round(v / scale)), size: Math.round(plan.size), lines: plan.lines,
+          lettered: j.rotate ? null : letteredBox(plan).map(Math.round), stagger: Math.round(Math.max(...plan.lines.map((_, k) => plan.rows[k].cx)) - Math.min(...plan.lines.map((_, k) => plan.rows[k].cx))), typical: Math.round((r.kind === 'loose' ? r.typical : j.own) / scale),
+          room: Math.round(j.maxSize), ...(r.kind !== 'loose' ? {enclosed: !!r.enclosed} : {}),
           ...(r.region ? {region: [r.region.x, r.region.y, r.region.width, r.region.height].map(v => Math.round(v / scale))} : {}),
           ...(r.plan?.style ? {weight: +r.plan.style.weight.toFixed(3), slant: Math.round(r.plan.style.angle * 180 / Math.PI), font: plan.font.split(',')[0]} : {})});
         translated++;
@@ -2437,7 +2475,10 @@
    * r.font. With r.span (from shapeSpan) each line uses the bubble's width at its height, centred
    * on r.centre, with a margin from the outline on every side; otherwise lines are centred in the
    * rectangle r.layout. Words are only split between lines when they fit no other way.
-   * Returns {size, lines, rows, first, font} or null when there is no room at all.
+   * With r.source (the original lettering's box) the lines are broken to about its shape, as
+   * even as they go, rather than one long line; with r.anchor ({x, y}, the original's middle)
+   * the lines sit there as far as the room allows.
+   * Returns {size, lines, rows, first, font, widths} or null when there is no room at all.
    */
   function fitText(ctx, r, s, imageWidth) {
     const box = r.layout;
@@ -2449,6 +2490,7 @@
     const measure = str => ctx.measureText(str).width;
     const k = fontScale(ctx, family);
     const setSize = size => { ctx.font = `${fontWeight(family)} ${size * k}px ${family}`; };
+    const anchor = r.anchor || null;
 
     // Rows for n lines at a size: [{cx, width}] plus the first line's middle, or null.
     const rowsFor = (n, size, shaped) => {
@@ -2467,22 +2509,44 @@
       const pad = Math.max(2, Math.round(Math.min(box.width, box.height) * 0.06));
       if (total > box.height - 2 * pad) return null;
       const width = box.width - 2 * pad;
-      return {rows: Array.from({length: n}, () => ({cx: box.x + box.width / 2, width})), first: box.y + (box.height - total) / 2 + step / 2};
+      const top = anchor ? clamp(anchor.y - total / 2, box.y + pad, box.y + box.height - pad - total) : box.y + (box.height - total) / 2;
+      return {rows: Array.from({length: n}, () => ({cx: box.x + box.width / 2, width})), first: top + step / 2};
+    };
+    const words = text.split(/\s+/u).filter(Boolean).length;
+    // The original's shape: the block of lines is about as wide for its height (never much
+    // taller than wide: a column of kana becomes a few short lines, not one word per line).
+    const target = r.source ? clamp(r.source.width / Math.max(1, r.source.height), 0.8, 12) : 0;
+    // The most even lines for n rows: the narrowest width that still needs no more than n lines.
+    const evenLines = (n, widthAt) => {
+      let lines = wrapText(measure, text, widthAt);
+      if (lines.length > n) return lines;
+      let lo = 0, hi = Math.max(...lines.map(measure));
+      while (hi - lo > 1) {
+        const w = (lo + hi) / 2, tried = wrapText(measure, text, i => Math.min(widthAt(i), w));
+        if (tried.length <= n && !(tried.broken && !lines.broken)) { hi = w; lines = tried; } else lo = w;
+      }
+      return lines;
     };
     const attempt = (size, shaped, allowBreaks) => {
       setSize(size);
       const most = Math.floor((shaped ? box.height * 3 : box.height) / (size * lineHeight));
-      for (let n = 1; n <= Math.min(most, 40); n++) {
+      let best = null, bestScore = Infinity;
+      for (let n = 1; n <= Math.min(most, 40, target ? Math.max(1, words) : 40); n++) {
         const plan = rowsFor(n, size, shaped);
         if (!plan) continue;
-        const lines = wrapText(measure, text, i => plan.rows[i]?.width ?? -1);
-        if (lines.length > n || (lines.broken && !allowBreaks)) continue;
+        const widthAt = i => plan.rows[i]?.width ?? -1;
+        const lines = target ? evenLines(n, widthAt) : wrapText(measure, text, widthAt);
+        if (lines.length > n || (target && lines.length < n) || (lines.broken && !allowBreaks)) continue;
         // Fewer lines than planned: re-centre for the real count when that still fits.
         const tight = lines.length < n ? rowsFor(lines.length, size, shaped) : plan;
         const use = tight && lines.every((line, i) => measure(line) <= tight.rows[i].width) ? tight : plan;
-        if (lines.every((line, i) => measure(line) <= use.rows[i].width + 0.5)) return {size, lines, font: family, ...use};
+        if (!lines.every((line, i) => measure(line) <= use.rows[i].width + 0.5)) continue;
+        const found = {size, lines, font: family, ...use};
+        if (!target) return found;
+        const score = Math.abs(Math.log(Math.max(...lines.map(measure)) / (lines.length * size * lineHeight) / target));
+        if (score < bestScore - 0.05) { best = found; bestScore = score; }
       }
-      return null;
+      return best;
     };
     const cap = Math.max(MIN, Math.round(r.maxSize || Math.max(28, imageWidth * 0.03)));
     const search = (shaped, allowBreaks) => {
@@ -2497,12 +2561,36 @@
     // the text tiny: then the plain box it was found in.
     const shaped = !!r.span;
     const better = (a, b) => !a ? b : !b || a.size >= b.size * 0.8 ? a : b;
-    return better(shaped && search(true, false), search(false, false)) || better(shaped && search(true, true), search(false, true)) || (() => {
+    const plan = better(shaped && search(true, false), search(false, false)) || better(shaped && search(true, true), search(false, true)) || (() => {
       setSize(MIN);
       const lines = wrapText(measure, text, box.width);
       return {size: MIN, lines, font: family, rows: lines.map(() => ({cx: box.x + box.width / 2, width: box.width})),
         first: box.y + (box.height - lines.length * MIN * lineHeight) / 2 + MIN * lineHeight / 2};
     })();
+    // The lines share one centre (a bubble's outline is uneven, its lettering is not): the
+    // original's middle, or the rows' average, as far as every row allows.
+    setSize(plan.size);
+    plan.widths = plan.lines.map(measure);
+    // (A row's width is measured to the outline's light edge: moving keeps a little extra margin
+    // where it can.)
+    const used = plan.rows.slice(0, plan.lines.length);
+    for (const margin of [plan.size * 0.25, 0]) {
+      const slack = (row, i) => Math.max(0, (row.width - plan.widths[i]) / 2 - margin);
+      const lo = Math.max(...used.map((row, i) => row.cx - slack(row, i))), hi = Math.min(...used.map((row, i) => row.cx + slack(row, i)));
+      if (lo > hi) continue;
+      const cx = clamp(anchor ? anchor.x : used.reduce((a, row) => a + row.cx, 0) / used.length, lo, hi);
+      plan.rows = plan.rows.map(row => ({...row, cx}));
+      break;
+    }
+    return plan;
+  }
+
+  /** The box a fitText plan's lines cover: [x, y, width, height]. */
+  function letteredBox(plan) {
+    const step = plan.size * 1.12, top = plan.first - step / 2;
+    const left = Math.min(...plan.lines.map((_, i) => plan.rows[i].cx - plan.widths[i] / 2));
+    const right = Math.max(...plan.lines.map((_, i) => plan.rows[i].cx + plan.widths[i] / 2));
+    return [left, top, right - left, plan.lines.length * step];
   }
 
   // Draw a plan from fitText in style {color, outline}. An outline is drawn only when the original
@@ -2543,7 +2631,7 @@
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
-      paintText, fitText, drawText, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
+      paintText, fitText, letteredBox, drawText, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;
   }
 
