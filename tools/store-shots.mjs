@@ -1,6 +1,7 @@
 // Live store screenshots: dist/chrome in Edge, translating the sample pages on a plain reader page
 // through the local Ollama. Saves 1280×800 captures to store/raw/ for tools/store-images.mjs.
 //   node build.mjs && node tools/store-shots.mjs      (Ollama must be running with a qwen3-vl model)
+// Edge runs headless, nothing on screen; --headed shows its window.
 import {chromium} from 'playwright-core';
 import {mkdtempSync, mkdirSync, readFileSync} from 'node:fs';
 import {createServer} from 'node:http';
@@ -24,7 +25,7 @@ const server = createServer((req, res) => {
 }).listen(8770);
 
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
-  channel: 'msedge', headless: false, viewport: {width: 1280, height: 800},
+  channel: 'msedge', headless: !process.argv.includes('--headed'), viewport: {width: 1280, height: 800},
   // The reader shows as comics.example (the local server) in the translator's site setting.
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--host-resolver-rules=MAP comics.example 127.0.0.1']
 });

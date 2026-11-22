@@ -87,7 +87,7 @@ try {
     const states = await welcome.evaluate(() => ['step-engine', 'step-model', 'step-try'].map(id => document.getElementById(id).dataset.state));
     check('setup page detects Ollama and the model', states[0] === 'done' && states[1] === 'done', states.join(','));
     const meter = await welcome.locator('.meter-line').innerText();
-    check('setup page shows the free meter', /30 of 30 free pages left today/.test(meter), meter);
+    check('setup page shows the free meter', /50 of 50 free pages left today/.test(meter), meter);
     await welcome.screenshot({path: join(out, 'welcome.png'), fullPage: true});
   }
 

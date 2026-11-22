@@ -5,7 +5,7 @@ const CONFIG = {
   // Nickname of the one-time Pro plan in the ExtensionPay dashboard; opens its checkout directly.
   proPlan: 'pro',
   // Free plan: new pages per day. Pages already translated in a tab show again for free.
-  freePagesPerDay: 30,
+  freePagesPerDay: 50,
   // Images of a long strip (webtoons, manhwa) count as this much of a page: a chapter is cut into
   // many images, each with less on it than a manga page. The README, website, store listing and
   // setup page say "half a page".
