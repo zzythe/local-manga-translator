@@ -49,6 +49,7 @@
             <div class="handle"></div>
             <input type="range" min="0" max="100" value="50" aria-label="Compare original and translation">
           </div>
+          <figcaption class="credit" id="credit" hidden>Pages: <a href="https://www.peppercarrot.com">Pepper&amp;Carrot</a> by David Revoy, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></figcaption>
         </figure>
       </div>
     </div>
@@ -94,7 +95,7 @@
     const compare = document.getElementById('compare');
     const imgs = [...compare.querySelectorAll('img')];
     Promise.all(imgs.map(img => img.decode())).then(() => {
-      compare.hidden = false; document.querySelector('.demo .frame').hidden = true;
+      compare.hidden = false; document.getElementById('credit').hidden = false; document.querySelector('.demo .frame').hidden = true;
     }, () => {});
     compare.querySelector('input').addEventListener('input', e => compare.style.setProperty('--split', e.target.value + '%'));
   </script>

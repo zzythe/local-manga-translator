@@ -27,6 +27,8 @@ Requirements: Windows 10 or later, macOS or Linux. A GPU with 6 GB of VRAM or mo
 
 Source code and bug reports: https://github.com/zzythe/local-manga-translator
 
+The comic pages in the screenshots are from Pepper&Carrot by David Revoy, CC BY 4.0.
+
 ## Single purpose (Chrome privacy tab)
 Translates the text in comic images on web pages the user chooses, using an AI model running locally on the user's computer.
 
@@ -48,9 +50,11 @@ Translates the text in comic images on web pages the user chooses, using an AI m
 
 ## Images to upload (in store/images/)
 - Icon 128×128: `extension/icons/icon128.png`
-- Screenshots 1280×800: `store/images/screenshot-*.png`
-- Small promo tile 440×280: `store/images/promo-small.png`
-- Marquee 1400×560 (optional): `store/images/promo-marquee.png`
+- Screenshots 1280×800, in this order: `screenshot-1.png` (original and translated), `screenshot-2.png` (reader), `screenshot-3.png` (settings), `screenshot-4.png` (setup page)
+- Small promo tile 440×280: `promo-small.png`
+- Marquee 1400×560 (optional): `promo-marquee.png`
+
+To make them again: `node build.mjs`, then with Ollama running `node tools/capture-translations.mjs` and `node tools/store-shots.mjs`, then `node tools/store-images.mjs` (no model needed; also writes `docs/img/before.jpg` and `after.jpg`).
 
 ## Firefox notes
 - Upload `dist/local-manga-translator-<version>-firefox.zip`. Mozilla requires the source for review when code is generated: upload the repository zip (without node_modules) and say "run `npm ci && node build.mjs`; output is dist/firefox".
