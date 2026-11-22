@@ -3224,7 +3224,8 @@
       }
       ready = true; startButton.hidden = true;
       // Load the model into memory now, while the first page downloads; loading takes seconds.
-      ollamaJSON('/api/chat', {model: settings.model, messages: [], keep_alive: '30m'}, 120000).catch(() => {});
+      // With the same options as every call: a different num_ctx would load it a second time.
+      ollamaJSON('/api/chat', {model: settings.model, messages: [], keep_alive: '30m', options: OLLAMA_OPTIONS}, 120000).catch(() => {});
       sweep(); pump();
     }
 
