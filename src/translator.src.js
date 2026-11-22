@@ -2935,6 +2935,8 @@
         return;
       }
       ready = true; startButton.hidden = true;
+      // Load the model into memory now, while the first page downloads; loading takes seconds.
+      ollamaJSON('/api/chat', {model: settings.model, messages: [], keep_alive: '30m'}, 120000).catch(() => {});
       sweep(); pump();
     }
 
