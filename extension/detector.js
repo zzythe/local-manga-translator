@@ -20,7 +20,7 @@ ort.env.wasm.wasmPaths = new URL('./ort/', import.meta.url).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2))) : 1;
 
 const state = Object.fromEntries(Object.keys(MODELS).map(name => [name, {session: null, loading: null, failed: 0}]));
-let runs = 0;
+let runs = 0, repaints = 0;
 
 async function modelBytes({url, sha256}) {
   const cache = await caches.open('mlt-models');
@@ -67,12 +67,12 @@ const fromBase64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 //   model is still loading;
 // {type: 'inpaint', image (PNG data URL), mask (base64, a byte per pixel), width, height} →
 //   {pixels (base64 RGBA)}, or {pixels: null} while loading;
-// {type: 'prepare'} → {ready}; {type: 'stats'} → {ready, runs, threads}.
+// {type: 'prepare'} → {ready}; {type: 'stats'} → {ready, runs, repaints, threads}.
 export async function handle(message) {
   if (message.type === 'prepare') {
     return Promise.all(Object.keys(MODELS).map(load)).then(() => ({ready: true}), error => ({ready: false, error: String(error.message || error)}));
   }
-  if (message.type === 'stats') return {ready: Object.values(state).every(m => m.session), runs, threads: ort.env.wasm.numThreads};
+  if (message.type === 'stats') return {ready: Object.values(state).every(m => m.session), runs, repaints, threads: ort.env.wasm.numThreads};
   if (message.type === 'detect') {
     const session = ready('detector');
     if (!session) return {found: null};
@@ -82,6 +82,7 @@ export async function handle(message) {
   if (message.type === 'inpaint') {
     const session = ready('inpainter');
     if (!session) return {pixels: null};
+    repaints++;
     const filled = await inpaintImage(ort, session, await pixels(message.image), fromBase64(message.mask), message.width, message.height);
     return {pixels: toBase64(filled)};
   }

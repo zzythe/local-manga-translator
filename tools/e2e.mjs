@@ -57,7 +57,7 @@ try {
   const t1 = Date.now();
   const prepared = await sw.evaluate(() => toDetector({type: 'prepare'}));
   const stats0 = await sw.evaluate(() => toDetector({type: 'stats'}));
-  check('text detector downloaded and loaded', prepared?.ready === true,
+  check('helper models downloaded and loaded', prepared?.ready === true,
     `${((Date.now() - t1) / 1000).toFixed(0)} s, ${stats0?.threads} threads${prepared?.error ? ', ' + prepared.error : ''}`);
 
   // 2. The sample page translates both pages.
@@ -70,8 +70,11 @@ try {
   await demo.waitForFunction(() => [...document.querySelectorAll('.reader img')].filter(i => i.src.startsWith('blob:')).length >= 2, null, {timeout: 300000});
   check('sample page 2 translated', true, `${((Date.now() - t0) / 1000).toFixed(0)} s total`);
   await demo.locator('.reader img').first().screenshot({path: join(out, 'demo-page1-translated.png')});
+  await demo.locator('.reader img').nth(1).screenshot({path: join(out, 'demo-page2-translated.png')});
   const stats = await sw.evaluate(() => toDetector({type: 'stats'}));
   check('sample pages used the text detector', stats?.runs >= 2, JSON.stringify(stats));
+  // Page 2 has a sound effect on the artwork (シュウウ…).
+  check('sound effect repainted by the inpainting model', stats?.repaints >= 1, JSON.stringify(stats));
   let plan = await sw.evaluate(() => plan());
   check('meter counted 2 pages', plan.used === 2, JSON.stringify(plan));
 
