@@ -25,7 +25,8 @@ const css = `
   .card img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .tag { position: absolute; top: 12px; left: 12px; padding: 2px 12px; border-radius: 999px; background: #fffdfa;
     border: 2px solid #1c1526; font: 700 16px Lettering, sans-serif; }
-  .credit { position: absolute; font-size: 12px; color: #6e6378; }`;
+  .credit { position: absolute; font-size: 12px; color: #6e6378; }
+  .caption { font: 700 34px/1.15 Lettering, sans-serif; text-align: center; }`;
 
 // A card showing part of a 1200 px wide page: x, y, width, height in page pixels, scaled to the
 // card's width.
@@ -40,10 +41,10 @@ const before = url('extension/demo/ja_E35P02.jpg'), after = url('store/raw/en_P0
 const credit = 'Pages: Pepper&amp;Carrot by David Revoy, CC BY 4.0';
 const pages = {
   compare: `<body style="--w:1280px;--h:800px;padding:34px 44px">
-    <div class="brand"><img src="${url('extension/icons/icon128.png')}" width="44" height="44">Local Manga Translator</div>
-    <div style="display:flex;gap:40px;margin-top:28px">
-      ${crop(before, [50, 15, 1100, 1112], 576, 'Original')}
-      ${crop(after, [50, 15, 1100, 1112], 576, 'Translated')}
+    <div class="caption" style="margin-top:-6px">Every bubble and sound effect, lettered in place</div>
+    <div style="display:flex;gap:40px;margin-top:22px">
+      ${crop(before, [50, 15, 1100, 1250], 576, 'Original')}
+      ${crop(after, [50, 15, 1100, 1250], 576, 'Translated')}
     </div>
     <div class="credit" style="right:44px;bottom:16px">${credit}</div></body>`,
   // One speech bubble before and after, big enough to read at this size.
@@ -80,9 +81,16 @@ await render('screenshot-1.png', pages.compare, 1280, 800);
 await render('promo-small.png', pages.promoSmall, 440, 280);
 await render('promo-marquee.png', pages.promoMarquee, 1400, 560);
 
-// Live captures from tools/store-shots.mjs are already 1280×800.
-[['shot-reader.png', 'screenshot-2.png'], ['shot-settings.png', 'screenshot-3.png'], ['shot-welcome.png', 'screenshot-4.png']]
-  .forEach(([from, to]) => { copyFileSync(join(raw, from), join(out, to)); console.log('saved', to); });
+// Live captures from tools/store-shots.mjs (1280×800), shown smaller under a caption.
+const captioned = (shot, caption, note = '') => `<body style="--w:1280px;--h:800px;padding:26px 0 0;display:flex;flex-direction:column;align-items:center">
+    <div class="caption">${caption}</div>
+    <div class="card" style="width:1056px;height:660px;margin-top:22px"><img src="${url('store/raw/' + shot)}"></div>
+    ${note ? `<div class="credit" style="right:44px;bottom:14px">${note}</div>` : ''}</body>`;
+const sampleCredit = 'Sample: Pepper&amp;Carrot by David Revoy, CC BY 4.0';
+await render('screenshot-2.png', captioned('shot-reader.png', 'About 5 seconds a page, translated ahead while you read',
+  `Measured on a Radeon RX 7800 XT · ${sampleCredit}`), 1280, 800);
+await render('screenshot-3.png', captioned('shot-settings.png', 'Choose the language, the font and the names to keep', sampleCredit), 1280, 800);
+await render('screenshot-4.png', captioned('shot-welcome.png', 'Runs on your own computer. Nothing you read is uploaded.'), 1280, 800);
 
 // Website before/after: the full first sample page, as JPEG.
 const page = await browser.newPage({viewport: {width: 1200, height: 1660}});
