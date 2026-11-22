@@ -19,10 +19,10 @@ text). Slanted sound effects are lettered along the original's axis and checked 
 
 ## Which run each page's output comes from
 
-All pages: one full run on 2026-11-22 (`run.mjs --unload --pause=30`, one page at a time, the
-model loaded again for every page), translator code as of the commit that adds this line, with
-the extension's helper models (`models/`, see the end). The translation call streams: each
-bubble is lettered as soon as its line is complete, and the finished page is made as before.
+All pages: one full run on 2026-11-22 (`run.mjs`, one page at a time, the model kept loaded),
+translator code as of the commit that adds this line, with the extension's helper models
+(`models/`, see the end). The translation call streams: each bubble is lettered as soon as its
+line is complete, and the finished page is made as before.
 
 With the model kept loaded, 11 pages one at a time: streaming, the first bubble is ready after
 3.2 s on average and the page after 4.2 s (46.7–47.0 s for all 11); without streaming
@@ -56,51 +56,51 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic). The text block no longer takes in art under the bubble |
+| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off… | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic). The text block no longer takes in art under the bubble |
 | 2 | あれ お目覚めね! | Hey, you're awake! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
 | 3 | 大丈夫？ 寒くない？ | You okay? Not too cold? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening, can't protect me from this cold anymore. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "protect you" |
+| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening too — can't protect me from this cold anymore. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "protect you" |
 
 ## E35P02 (13 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 私 バカだった! | I was such a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | was lettered low in the area, and a hair tip below was erased: a bit of art at the panel corner was taken for a line of text. Now I WAS SUCH / A FOOL! where the original was, hair kept |
-| 2 | もうすぐ加速もできなくなりそう | I'm gonna lose my speed soon | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | もうすぐ加速もできなくなりそう | I'm about to lose the ability to accelerate too. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | longer wording than before: 16 of 20 px in four lines |
+| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | すぐにあきらめてしまうと思ったのに! | I thought I'd give up right away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | wrong subject: "I thought they'd give up quickly!" |
-| 6 | なんとかうまくまければいいのだけど | I just hope I can manage to keep up | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
+| 6 | なんとかうまくまければいいのだけど | I just hope I can manage somehow. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
 | 7 | 捕まえられる前に! | Before they catch us! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two get away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
+| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two escape! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
 | 9 | …つかれた… | I'm so tired… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 10 | いけない! | No! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 11 | でもわたし… | But me… | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "But I…" reads better |
-| 12 | しっかりしなきゃペッパー! | I gotta stay focused, Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 12 | しっかりしなきゃペッパー! | I've got to stay focused, Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 13 | …すごく… | So much… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E35P03 (4 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | そうなったら すぐに攻撃よ | If that's the case, I'll attack right away. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the middle line comes close to the outline on the left: the bubble's rows are measured to its light outline, not inside it |
-| 2 | まもなく 魔力切れに なりそうだ | I'm about to run out of magic power soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
+| 1 | そうなったら すぐに攻撃よ | If that's the case, we'll attack right away. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the middle line comes close to the outline on the left: the bubble's rows are measured to its light outline, not inside it |
+| 2 | まもなく 魔力切れに なりそうだ | We're gonna run out of magic power soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
 | 3 | ああ この追跡劇も もうすぐ終わる | Ah, this chase scene's almost over. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
-| 4 | 今のあれ 見えた？ | Did you see me now? | ✓ | ✗ | ✓ | ✓ | ~ | ✓ | read as 今のおれ; the code before this run reads it the same way now. Lines stepped |
+| 4 | 今のあれ 見えた？ | Did you see what just happened? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | read right this run (今のおれ, "Did you see me now?", in the one before) |
 
 ## E36P01 (3 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | 謝罪だと? | Apologize? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | 何を言っている! | What are you saying! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 1 | 謝罪だと? | Apologize?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | 何を言っている! | What are you saying?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 3 | この愚か者を 牢屋に放り込め! | Throw this fool into jail! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E36P02 (5 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the cell bars behind it are repainted (MI-GAN). The original has a dark drop shadow; ours has none |
+| 1 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | lettered letter by letter on the original's characters: P large like プ, 33 px (29 on a straight line). fits.py says 17 % off the model's box; it sits on the original's characters. The cell bars behind it are repainted (MI-GAN). The original has a dark drop shadow; ours has none |
 | 2 | 魔法牢獄め! ああああ! | Magic prison! Aaah! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 3 | ガラン! (SFX) | CLATTER | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
 | 4 | もう! | Ugh! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
@@ -112,10 +112,10 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | しーっ ペッパー! | Shh! Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble |
 | 2 | 私 バカだった! | I was a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | was stepped and left of the middle: one row of the spiky bubble stopped at a speck of ink inside the lettering. Now I WAS / A FOOL! on one centre |
-| 3 | おとなしく して | Just a little bit… | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | read as おとなく して from a clear crop: the sheet's layout changed (its sound effect is read larger) and 4b reads this crop worse on it. With loose crops 280 px instead of 360 it reads right, but E01P01's ざぶん and the roar page's フリフリ are lost (see below) |
-| 4 | 一体 誰なの?! | Who the hell are you? | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | longer wording than before: 20 of 24 px in two lines |
-| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | read as シユウウ, still FSSSH. The original's blue glow is not reproduced |
-| 6 | しーっ! 静かにして! | Shh! Keep it quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | おとなしく して | Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | read right this run; the run before read おとなく して from the same crop ("Just a little bit…"). 4b variance |
+| 4 | 一体 誰なの?! | Who are you? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | lettered letter by letter round the original's curve, F large like シ. Read as シユウウ, still FSSSH. The original's blue glow is not reproduced |
+| 6 | しーっ! 静かにして! | Shh! Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 7 | 来て | Come here! | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | two lines in the room below the line above; a little left of 来て |
 | 8 | ここから 出してあげる | I'll get you out of here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 9 | シチミ? | Chitami? | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | name: Shichimi |
@@ -137,13 +137,13 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 道を開けて… | Clear the path… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| – | ズウン (SFX) | – | ✗ | – | – | ✓ | – | – | the art look returned nothing in the final runs, so it is left as drawn; earlier runs of the same pipeline code found it (THOOM, THUD). 4b variance |
-| 2 | 傷が… 消えた | The wound… gone. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | さあ急ごう 宝物が 待っている! | Alright, let's rush—treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | そうだ! | Right! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | いつもながら まるで奇跡だ | As always, it's like a miracle. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 6 | ヒーラーのおかげで 俺らは無敵! 次の怪物を 倒しに行こう! | Thanks to the healer, we're invincible! Let's take down the next monster! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 7 | すばらしい ヒーラーの 力だ! | Awesome healer power! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | ズウン (SFX) | BOOM | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | found this run (read ズワン); the runs before found nothing there. Slanted like the original; its soft glow is not reproduced |
+| 3 | 傷が… 消えた | The wound… gone. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | さあ急ごう 宝物が 待っている! | Come on, hurry! The treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 5 | そうだ! | Right! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 6 | いつもながら まるで奇跡だ | As always, a miracle! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 7 | ヒーラーのおかげで 俺らは無敵! 次の怪物を 倒しに行こう! | Thanks to the Healer, the fake invincibility is gone! Let's go defeat the next monster! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 俺ら read as 偽ら ("fake") this run |
+| 8 | すばらしい ヒーラーの 力だ! | Awesome power of the Healer! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E38P03 (4 items, 0 skipped)
 
@@ -152,20 +152,26 @@ so the gain is one page's drawing, cleaning and lettering overlapping the other'
 | 1 | 俺のだ! | Mine! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | いいえ! 私の獲物よ! | No! Mine! | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | loses "my prey" |
 | 3 | 自分が何をしているのかわかっているのか? | Do you know what you're doing? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 我らは何ヶ月もお前を捜していたのだぞ | We've been looking for you for months! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 我らは何ヶ月もお前を捜していたのだぞ | We've been looking for you for months! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | read with 探 for 捜; same meaning |
 
 ## Totals (65 items)
 
 | | ✓ | ~ | ✗ | – |
 |---|---|---|---|---|
-| Translated | 64 | | 1 | |
-| Sense | 51 | 5 | 8 | 1 |
-| Erased, no ghost | 64 | | | 1 |
+| Translated | 65 | | | |
+| Sense | 53 | 5 | 7 | |
+| Erased, no ghost | 65 | | | |
 | Background kept | 65 | | | |
-| Fits | 58 | 6 | 0 | 1 |
-| Outline matches | 62 | 2 | | 1 |
+| Fits | 60 | 5 | 0 | |
+| Outline matches | 62 | 3 | | |
 
-This run against the one before it (64 translated; Sense 51 ✓, 5 ~, 8 ✗; Fits 59 ✓, 5 ~): same
+This run against the one before it (64 translated; Sense 51 ✓, 5 ~, 8 ✗; Fits 58 ✓, 6 ~): the
+model worded 9 of the 11 pages differently again. E38P02's ズウン was found (BOOM), E35P03 #4 and
+E36P03 #3 were read right, and E38P02 #7 was misread (偽ら). In Fits, E35P03 #4 and E36P03 #4 now
+fit and E35P02 #2 got a longer wording (~). Two sound effects are lettered letter by letter
+(E36P02 #1, E36P03 #5, see below); the code change touches nothing else.
+
+The run before that (64 translated; Sense 51 ✓, 5 ~, 8 ✗; Fits 59 ✓, 5 ~): same
 totals in Sense, E01P01 #2 now right and E36P03 #3 now misread; one ~ more in Fits (E36P03 #4,
 longer wording). Sound effects are lettered no smaller than about their original characters
 (E01P01 #2, #4, #5, E01P02 #3, E36P02 #3), on two lines where the original's place allows.
@@ -177,10 +183,25 @@ E35P03 pixel for pixel as this run does, and E01P01 the same as the new code run
 or not gives the same answer. The one change in the totals is E35P03 #4, a misread (✗), whose
 lines are also stepped (~); E35P02 #2 is shorter now and fits (✓).
 
-Every ✗ in Sense is the 4b model: a misread (ぱらぱら, 今のあれ), a wrong subject or gist, or a name
+Every ✗ in Sense is the 4b model: a misread (俺ら), a wrong subject or gist, or a name
 transliterated (Rea, Shichimi; a names list in settings fixes those: `run.mjs --terms=terms.txt`).
 
 ## Found in the last runs
+
+- Sound effects are lettered letter by letter where that follows the original better: the
+  original's strokes are split into its characters (pieces that touch, joined along its
+  direction; specks, dakuten and art off its line left out), and the English letters run along a
+  path through their middles, the first on the first character and the last on the last, each as
+  big and as tilted as the character where it falls (turned with the path where it climbs
+  steeply). Only when the split is clean (about as many characters as the reading has, of about
+  one size, apart, on a gently bending line), the letters stand close, step at most about 35° off
+  their baseline, come out at least 95 % of the straight line's size, stay in about the erased
+  area and the panel and cover no other text. Otherwise the straight, slanted line stays. On this
+  set: PSSSHH (E36P02 #1) and FSSSH (E36P03 #5). SPRINKLE (its kana drawn touching), GLUG GLUG
+  (two lines are larger), SPLASH, SPLISH, CLATTER and BOOM keep the straight line. Large sound
+  effects translated beside the original try the same along a line parallel to its characters;
+  the roar page's steep diagonal fails the step check (its last word ran straight down), so it
+  keeps the straight line.
 
 - Two pages that can't be kept here (a Halloween page with vertical bubbles, and a page with a
   roar across a whole panel), checked with `--pages=<folder>` and `--dump=<folder>` (every image
@@ -219,7 +240,7 @@ transliterated (Rea, Shichimi; a names list in settings fixes those: `run.mjs --
   line of several crops (私, すぐに, して), added stray 「, and misread 間→問, シ→ン, て→で, 力→カ.
   In a full run it caused six new ✗ in Sense and fixed two, and was no faster (60.8 s against
   57.2 s for the vision model with `--source=Japanese`). Not used.
-- E38P02 ズウン: see above.
+- E38P02 ズウン: found in this run only (see its row).
 
 ## Running it again
 

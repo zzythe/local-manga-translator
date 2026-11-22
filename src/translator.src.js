@@ -1209,6 +1209,215 @@
       thickness, weight: thickness / Math.max(4, Math.min(length, breadth))};
   }
 
+  // The characters a sound effect is drawn with: kana, kanji, ー and exclamation marks.
+  const sfxCount = text => (String(text).match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}ーｰ〜!！?？]/gu) || []).length;
+
+  /**
+   * The characters of a sound effect: its strokes (a mask w × h) split into the pieces that
+   * touch, and those joined into `count` characters along the lettering's direction (ハ's two
+   * strokes, a dakuten, ッ's dots). Returns [{x, y, size, angle}] in reading order (the centre,
+   * the larger side of the character's tightest box and that box's tilt), or null when the
+   * lettering does not split cleanly: characters drawn touching, or pieces that make uneven,
+   * overlapping characters.
+   */
+  function sfxCharacters(mask, w, h, count, why = {}) {
+    const fail = reason => { why.reason = reason; return null; };
+    if (count < 2) return fail('one character');
+    const n = w * h, seen = new Uint8Array(n);
+    let parts = [], total = 0;
+    for (let s = 0; s < n; s++) {
+      if (!mask[s] || seen[s]) continue;
+      const pixels = [], stack = [s];
+      seen[s] = 1;
+      while (stack.length) {
+        const i = stack.pop(), x = i % w, y = (i / w) | 0;
+        pixels.push(i);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const X = x + dx, Y = y + dy, j = Y * w + X;
+          if (X >= 0 && Y >= 0 && X < w && Y < h && mask[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
+        }
+      }
+      parts.push({pixels}); total += pixels.length;
+    }
+    parts = parts.filter(p => p.pixels.length >= Math.max(6, total * 0.003));
+    if (parts.length < 2) return fail('one piece');
+    // The lettering's direction: left to right, or top to bottom when it runs more down than across.
+    let mx = 0, my = 0, all = 0;
+    for (const p of parts) for (const i of p.pixels) { mx += i % w; my += (i / w) | 0; all++; }
+    mx /= all; my /= all;
+    let xx = 0, yy = 0, xy = 0;
+    for (const p of parts) for (const i of p.pixels) { const dx = i % w - mx, dy = ((i / w) | 0) - my; xx += dx * dx; yy += dy * dy; xy += dx * dy; }
+    const axis = 0.5 * Math.atan2(2 * xy, xx - yy);
+    let ux = Math.cos(axis), uy = Math.sin(axis);
+    if (Math.abs(axis) > Math.PI / 4 && uy < 0) { ux = -ux; uy = -uy; }
+    for (const p of parts) {
+      p.a0 = p.b0 = p.x0 = p.y0 = Infinity; p.a1 = p.b1 = p.x1 = p.y1 = -Infinity;
+      for (const i of p.pixels) {
+        const x = i % w, y = (i / w) | 0, a = x * ux + y * uy, b = y * ux - x * uy;
+        if (a < p.a0) p.a0 = a; if (a > p.a1) p.a1 = a; if (b < p.b0) p.b0 = b; if (b > p.b1) p.b1 = b;
+        if (x < p.x0) p.x0 = x; if (x > p.x1) p.x1 = x; if (y < p.y0) p.y0 = y; if (y > p.y1) p.y1 = y;
+      }
+      p.big = Math.max(p.a1 - p.a0, p.b1 - p.b0) + 1;
+    }
+    // Pieces about a character's size. The small ones (dakuten, dots, specks) change a
+    // character's place and size little and are left out.
+    const bigs = parts.map(p => p.big).sort((a, b) => a - b), usual = bigs[Math.floor(bigs.length * 0.75)];
+    let major = parts.filter(p => p.big >= usual * 0.35);
+    // Art caught with the lettering lies off its line (a curve through the pieces, weighted by
+    // their ink): the piece furthest from it goes while it is far, up to a third of them.
+    const most = Math.floor(major.length / 3);
+    for (let dropped = 0; major.length >= 3 && dropped < most; dropped++) {
+      const deg = major.length >= 5 ? 2 : 1, d = deg + 1, A = Array.from({length: d}, () => new Float64Array(d + 1));
+      for (const p of major) {
+        const a = (p.a0 + p.a1) / 2, b = (p.b0 + p.b1) / 2, wt = p.pixels.length, pw = [1, a, a * a];
+        for (let r = 0; r < d; r++) { for (let c = 0; c < d; c++) A[r][c] += wt * pw[r] * pw[c]; A[r][d] += wt * pw[r] * b; }
+      }
+      for (let c = 0; c < d; c++) for (let r = c + 1; r < d; r++) {
+        const f = A[r][c] / (A[c][c] || 1e-12);
+        for (let k = c; k <= d; k++) A[r][k] -= f * A[c][k];
+      }
+      const coef = new Float64Array(d);
+      for (let r = d - 1; r >= 0; r--) {
+        let v = A[r][d];
+        for (let k = r + 1; k < d; k++) v -= A[r][k] * coef[k];
+        coef[r] = v / (A[r][r] || 1e-12);
+      }
+      const off = p => { const a = (p.a0 + p.a1) / 2; return Math.abs((p.b0 + p.b1) / 2 - (coef[0] + coef[1] * a + (deg > 1 ? coef[2] * a * a : 0))); };
+      const sizes = major.map(p => p.big).sort((a, b) => a - b), worst = major.reduce((q, p) => off(p) > off(q) ? p : q);
+      if (off(worst) <= sizes[sizes.length >> 1] * 0.8) break;
+      major = major.filter(p => p !== worst);
+    }
+    const fewest = count - Math.max(1, Math.round(count * 0.25));
+    why.pieces = major.length;
+    if (major.length < fewest) return fail('characters drawn touching');
+    // Join neighbouring pieces along the direction into characters, the pair that makes the
+    // shortest character first (ハ's two strokes before two characters side by side).
+    const box = parts => {
+      const g = {parts, x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, a0: Infinity, a1: -Infinity};
+      for (const p of parts) {
+        g.x0 = Math.min(g.x0, p.x0); g.y0 = Math.min(g.y0, p.y0); g.x1 = Math.max(g.x1, p.x1); g.y1 = Math.max(g.y1, p.y1);
+        g.a0 = Math.min(g.a0, p.a0); g.a1 = Math.max(g.a1, p.a1);
+      }
+      g.size = Math.max(g.x1 - g.x0, g.y1 - g.y0) + 1;
+      return g;
+    };
+    let groups = major.map(p => box([p])).sort((p, q) => (p.a0 + p.a1) - (q.a0 + q.a1));
+    const reach = (p, q) => Math.max(p.a1, q.a1) - Math.min(p.a0, q.a0);
+    while (groups.length > count) {
+      let k = 0;
+      for (let i = 1; i < groups.length - 1; i++) if (reach(groups[i], groups[i + 1]) < reach(groups[k], groups[k + 1])) k = i;
+      groups.splice(k, 2, box([...groups[k].parts, ...groups[k + 1].parts]));
+    }
+    // Clean: characters of about one size (none two drawn as one), each mostly clear of the others.
+    const sizes = groups.map(g => g.size), usualSize = [...sizes].sort((a, b) => a - b)[sizes.length >> 1];
+    if (sizes.some(v => v < usualSize * 0.4 || v > usualSize * 2.2)) return fail('uneven characters');
+    const area = g => (g.x1 - g.x0 + 1) * (g.y1 - g.y0 + 1);
+    for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+      const p = groups[i], q = groups[j];
+      const shared = Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0));
+      if (shared > Math.min(area(p), area(q)) * 0.35) return fail('overlapping characters');
+    }
+    const chars = groups.map(g => {
+      const pixels = g.parts.flatMap(p => p.pixels);
+      let sx = 0, sy = 0;
+      for (const i of pixels) { sx += i % w; sy += (i / w) | 0; }
+      return {x: sx / pixels.length, y: sy / pixels.length, pixels};
+    });
+    // One after another, with no wide gaps (art far along the line, a second sound effect).
+    for (let i = 1; i < chars.length; i++) {
+      const gap = Math.hypot(chars[i].x - chars[i - 1].x, chars[i].y - chars[i - 1].y);
+      if (gap > (sizes[i] + sizes[i - 1]) * 1.1) return fail('characters far apart');
+      // ...and along a line that bends gently.
+      if (i >= 2) {
+        const a = Math.atan2(chars[i - 1].y - chars[i - 2].y, chars[i - 1].x - chars[i - 2].x), b = Math.atan2(chars[i].y - chars[i - 1].y, chars[i].x - chars[i - 1].x);
+        if (Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a))) > Math.PI / 3) return fail('characters off the line');
+      }
+    }
+    // Each character's size and tilt: its tightest box upright, or turned with the line through
+    // the characters (lettering on a curve), whichever is clearly tighter.
+    const across = Math.abs(axis) > Math.PI / 4 ? Math.PI / 2 : 0;
+    chars.forEach((c, i) => {
+      const p = chars[Math.max(0, i - 1)], q = chars[Math.min(chars.length - 1, i + 1)];
+      let turn = Math.atan2(q.y - p.y, q.x - p.x) - across;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      if (Math.abs(turn) > Math.PI / 2) turn -= Math.sign(turn) * Math.PI;
+      const step = Math.max(1, Math.floor(c.pixels.length / 3000));
+      const box = t => {
+        const cs = Math.cos(t), sn = Math.sin(t);
+        let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+        for (let k = 0; k < c.pixels.length; k += step) {
+          const x = c.pixels[k] % w, y = (c.pixels[k] / w) | 0, u = x * cs + y * sn, v = y * cs - x * sn;
+          if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v;
+        }
+        return {area: (u1 - u0 + 1) * (v1 - v0 + 1), size: Math.max(u1 - u0, v1 - v0) + 1};
+      };
+      const upright = box(0), turned = Math.abs(turn) > 0.05 && Math.abs(turn) <= Math.PI / 4 ? box(turn) : null;
+      const use = turned && turned.area < upright.area * 0.92 ? {...turned, angle: turn} : {...upright, angle: 0};
+      c.size = use.size; c.angle = use.angle;
+    });
+    // A character's tilt is about its neighbours' (one odd shape is not a turn).
+    const tilts = chars.map(c => c.angle);
+    chars.forEach((c, i) => {
+      const j = clamp(i, 1, chars.length - 2);
+      if (chars.length >= 3) c.angle = [tilts[j - 1], tilts[j], tilts[j + 1]].sort((a, b) => a - b)[1];
+      delete c.pixels;
+    });
+    return chars;
+  }
+
+  /**
+   * Letters along a path through points [{x, y, size, angle}] (a sound effect's characters, or a
+   * line beside them): the first letter on the first point and the last on the last, the others
+   * spread evenly between, each as big (times k) and as tilted as the path where it falls.
+   * advances: each letter's width at size 1. ext: how far past each end, in that end's sizes,
+   * the run may reach. Returns {letters: [{x, y, size, angle}], spread, steep} (spread: the room
+   * for the letters over their widths, 1 when neighbours just touch; steep: the most the path
+   * runs off a letter's baseline, in radians), or null.
+   */
+  function alongPath(points, advances, k = 1, ext = 0) {
+    const m = advances.length;
+    if (points.length < 2 || !m) return null;
+    const pts = points.map(p => ({...p}));
+    const reach = (p, q) => {
+      const len = Math.hypot(p.x - q.x, p.y - q.y) || 1, d = ext * p.size * k;
+      p.x += (p.x - q.x) / len * d; p.y += (p.y - q.y) / len * d;
+    };
+    if (ext) { reach(pts[0], points[1]); reach(pts[pts.length - 1], points[points.length - 2]); }
+    const at = [0];
+    for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    const length = at[at.length - 1];
+    if (!(length > 0)) return null;
+    const point = t => {
+      let i = 0;
+      while (i < pts.length - 2 && at[i + 1] < t) i++;
+      const f = clamp((t - at[i]) / Math.max(1e-9, at[i + 1] - at[i]), 0, 1), p = pts[i], q = pts[i + 1];
+      return {x: p.x + (q.x - p.x) * f, y: p.y + (q.y - p.y) * f, size: p.size + (q.size - p.size) * f, angle: p.angle + (q.angle - p.angle) * f};
+    };
+    if (m === 1) { const p = point(length / 2); return {letters: [{...p, size: p.size * k}], spread: 1}; }
+    // Spaced in proportion to the letters' widths at the sizes where they fall.
+    let t = advances.map((_, j) => length * j / (m - 1)), spread = 1;
+    for (let pass = 0; pass < 4; pass++) {
+      const size = t.map(v => point(v).size * k), gaps = [];
+      for (let j = 0; j < m - 1; j++) gaps.push((advances[j] * size[j] + advances[j + 1] * size[j + 1]) / 2);
+      const natural = gaps.reduce((a, v) => a + v, 0);
+      spread = length / natural;
+      let c = 0;
+      t = [0, ...gaps.map(g => length * (c += g) / natural)];
+    }
+    // Each letter at the tilt of the character where it falls, but turned with the path where it
+    // climbs or falls steeply (upright letters stepping down a steep line read badly), and never
+    // turned more than 50°. steep: how far the path still runs off the letters' baseline.
+    let steep = 0;
+    const letters = t.map(v => {
+      const p = point(v), d = p.size * k * 0.5, a = point(Math.max(0, v - d)), b = point(Math.min(length, v + d));
+      const run = Math.atan2(b.y - a.y, b.x - a.x), off = Math.atan2(Math.sin(run - p.angle), Math.cos(run - p.angle));
+      const angle = clamp(run - clamp(off, -0.45, 0.45), -0.87, 0.87);
+      steep = Math.max(steep, Math.abs(Math.atan2(Math.sin(run - angle), Math.cos(run - angle))));
+      return {...p, size: p.size * k, angle};
+    });
+    return {letters, spread, steep};
+  }
+
   // How far a colour {r, g, b, lum} is from the background, the way planLooseErase measures contrast.
   const away8 = (c, bg) => Math.max(Math.abs(c.lum - bg.lum), (Math.abs(c.r - bg.r) + Math.abs(c.g - bg.g) + Math.abs(c.b - bg.b)) / 2);
 
@@ -1596,7 +1805,7 @@
     const away = q => Math.max(Math.abs(lumOf(data, q) - bg.lum), (Math.abs(data[q] - bg.r) + Math.abs(data[q + 1] - bg.g) + Math.abs(data[q + 2] - bg.b)) / 2);
     const inkAway = ink ? away8(ink, bg) : maxDiff, seen50 = new Uint8Array(n);
     for (const i of masked(grown)) if (away(i * 4) >= inkAway * 0.5) seen50[i] = 1;
-    return {mask, bounds, rows: {left, right}, solid, fill: [bg.r, bg.g, bg.b], background: bg.lum, color, outline, style: strokeStyle(seen50, w, h)};
+    return {mask, bounds, rows: {left, right}, solid, fill: [bg.r, bg.g, bg.b], background: bg.lum, color, outline, style: strokeStyle(seen50, w, h), strokes: seen50};
   }
 
   /* --- Large sound effects --------------------------------------------------------------
@@ -1747,7 +1956,7 @@
     const grid = new Float32Array(cols * rows);
     for (let i = 0; i < ink.length; i++) if (ink[i]) grid[((i / w | 0) / cell | 0) * cols + ((i % w) / cell | 0)] += 1 / (cell * cell);
     return {beside: true, bounds: {x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1}, color: hex(inkC.r, inkC.g, inkC.b),
-      outline, blur: edge ? soft / edge : 0, style, grid: {cell, cols, rows, data: grid}, fill: [bg.r, bg.g, bg.b], background: bg.lum};
+      outline, blur: edge ? soft / edge : 0, style, strokes: top, grid: {cell, cols, rows, data: grid}, fill: [bg.r, bg.g, bg.b], background: bg.lum};
   }
 
   /**
@@ -1832,7 +2041,7 @@
       }
       // Measure the letters with their rim, as a reader sees the shapes.
       return {mask, bounds, rows: {left, right}, solid: false, fill: bg ? [bg.r, bg.g, bg.b] : [128, 128, 128], background: bg ? bg.lum : 128,
-        color: hex(ink.r, ink.g, ink.b), outline: o ? hex(o.r, o.g, o.b) : null, style: strokeStyle(core, w, h)};
+        color: hex(ink.r, ink.g, ink.b), outline: o ? hex(o.r, o.g, o.b) : null, style: strokeStyle(core, w, h), strokes: core};
     }
     return fail(why.reason || 'busy background, no distinct lettering colour');
   }
@@ -1962,7 +2171,7 @@
       }
     }
     return {mask, bounds, rows: {left, right}, solid: false, fill: bg ? [bg.r, bg.g, bg.b] : ink, background: bg ? bg.lum : 128, color, outline,
-      style: strokeStyle(seen50, w, h)};
+      style: strokeStyle(seen50, w, h), strokes: seen50};
   }
 
   // Clean masked pixels in place. Alpha is set so only cleaned pixels are opaque,
@@ -2722,16 +2931,72 @@
           const along = st.length, across = st.breadth;
           // English runs longer than kana: room for a second line rather than tiny letters.
           const box = {x: cx - along * 0.55, y: cy - across * 0.85, width: along * 1.1, height: across * 1.7};
-          return roomFor({r, text: r.translation, layout: toImage(box), span: null, maxSize: Math.min(across, along) * 1.1 / scale, font,
+          return followErased(roomFor({r, text: r.translation, layout: toImage(box), span: null, maxSize: Math.min(across, along) * 1.1 / scale, font,
             color: plan.color, outline: plan.outline, weight: plan.style.weight, rotate: {angle: tilt, cx: cx / scale, cy: cy / scale}},
-          Math.min(across, along) * 0.8 / scale, Math.max(along * 3, panel.width * 0.5) / scale);
+          Math.min(across, along) * 0.8 / scale, Math.max(along * 3, panel.width * 0.5) / scale), t, panel);
         }
         const j = {r, text: r.translation, layout: toImage(layout), span: shapeSpan(rows, scale), centre: (t.y + t.height / 2) / scale,
           maxSize: size / scale, font, color: plan.color, outline: plan.outline, weight: sfx ? plan.style?.weight : undefined,
           source: toImage(t), anchor: {x: (t.x + t.width / 2) / scale, y: (t.y + t.height / 2) / scale}};
         // (Turned horizontal: its box can hold more than its characters, art caught with them or
         // two columns, so only about half its smaller side is sure to be one character.)
-        return sfx ? roomFor(j, Math.min(t.width, t.height) * 0.45 / scale, panel.width / scale) : j;
+        return sfx ? followErased(roomFor(j, Math.min(t.width, t.height) * 0.45 / scale, panel.width / scale), t, panel) : j;
+      }
+      // Letters along a path through points [{x, y, size, angle}] in page pixels (see alongPath),
+      // as big as the path allows up to `top` times its sizes, no smaller than `least`:
+      // {letters: [{x, y, size, angle, ch, width}], size (the usual letter's)} or null.
+      function lettersAlong(points, text, font, top, least) {
+        const info = languageInfo(s.target);
+        if (info.script !== 'latin' && info.script !== 'cyrillic') return null;
+        let shown = String(text).replace(/\.{3}/g, '…').trim();
+        if (s.uppercase) shown = shown.toLocaleUpperCase(info.code);
+        const glyphs = Array.from(shown);
+        if (glyphs.length < 2 || glyphs.length > 18) return null;
+        measure.font = `${fontWeight(font)} ${100 * fontScale(measure, font)}px ${font}`;
+        const advances = glyphs.map(ch => measure.measureText(ch).width / 100);
+        // A small kana (ュ, ッ) is no reason for smaller letters in the middle of a word.
+        const usual = [...points.map(p => p.size)].sort((a, b) => a - b)[points.length >> 1];
+        points = points.map(p => ({...p, size: Math.max(p.size, usual * 0.75)}));
+        for (const ext of [0, 0.4]) {
+          // As big as fits; where the letters would stand apart, bigger (up to a third) to close up.
+          let k = top, run = null;
+          for (let pass = 0; pass < 6; pass++) {
+            run = alongPath(points, advances, k, ext);
+            if (!run || (run.spread >= 0.98 && (run.spread <= 1.15 || k >= top * 1.35))) break;
+            k = Math.min(top * 1.35, k * run.spread * (run.spread < 0.98 ? 0.99 : 1 / 1.08));
+          }
+          // (Letters standing apart are no longer read as one word; nor are letters stepping
+          // steeply off their baseline.)
+          if (!run || run.spread < 0.97 || run.spread > 1.3 || run.steep > 0.6) continue;
+          const sizes = run.letters.map(l => l.size).sort((a, b) => a - b), size = sizes[sizes.length >> 1];
+          if (size < least) continue;
+          return {letters: run.letters.map((l, i) => ({...l, ch: glyphs[i], width: advances[i] * l.size})), size};
+        }
+        return null;
+      }
+      // A sound effect lettered letter by letter along its original's characters, where it was
+      // erased: only when the original splits cleanly into its characters, and the letters come
+      // out as big as on a straight line (within 5 %), stay in about the erased area and the panel, and
+      // cover no other text. Otherwise the straight line j stays.
+      function followErased(j, t, panel) {
+        const {r} = j, {plan, crop} = r;
+        const chars = plan.strokes && sfxCharacters(plan.strokes, crop.width, crop.height, sfxCount(r.original));
+        if (!chars) return j;
+        const points = chars.map(c => ({x: (crop.x + c.x) / scale, y: (crop.y + c.y) / scale, size: c.size / scale, angle: c.angle}));
+        const straight = fitText(measure, j, s, image.width)?.size ?? 0;
+        const run = lettersAlong(points, j.text, j.font, 1, straight * 0.95);
+        if (!run) return j;
+        const char = [...points.map(p => p.size)].sort((a, b) => a - b)[points.length >> 1] * 0.35;
+        const area = {x: t.x / scale - char, y: t.y / scale - char, width: t.width / scale + 2 * char, height: t.height / scale + 2 * char};
+        const others = readings.filter(o => o !== r).map(toImage), room = toImage(panel);
+        const within = (b, x, y) => x >= b.x && y >= b.y && x <= b.x + b.width && y <= b.y + b.height;
+        for (const l of run.letters) {
+          const corners = letterCorners(l);
+          if (!corners.every(([x, y]) => within(area, x, y) && within(room, x, y))) return j;
+          const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+          if (others.some(o => x0 < o.x + o.width && x1 > o.x && y0 < o.y + o.height && y1 > o.y)) return j;
+        }
+        return {...j, letters: run.letters, span: null, rotate: null};
       }
       // A sound effect is never lettered much smaller than its original characters: where the
       // English is longer, its box grows along its line (up to `widest`), centred where it was.
@@ -2786,9 +3051,60 @@
         }
         // As soft as the original, for letters this much smaller.
         const blur = plan.blur * size / Math.max(size, glyph * 0.5) / scale;
-        return {r, text: r.translation, layout: toImage({x: best.x - bw / 2, y: best.y - bh / 2, width: bw, height: bh}), span: null,
+        const job = {r, text: r.translation, layout: toImage({x: best.x - bw / 2, y: best.y - bh / 2, width: bw, height: bh}), span: null,
           maxSize: size / scale, font, color: plan.color, outline, outlineWidth: 0.1, weight: Math.max(st.weight, SFX_WEIGHTS.get(font) + 0.03), blur,
           rotate: angle ? {angle, cx: best.x / scale, cy: best.y / scale} : null};
+        return followBeside(job) || job;
+
+        // How bad a point is for lettering: off the panel or on a bubble 2, on the strokes 1.
+        function badAt(x, y) {
+          if (x < panel.x || y < panel.y || x >= panel.x + panel.width || y >= panel.y + panel.height) return 2;
+          if (bubbles.some(o => x >= o.x && y >= o.y && x < o.x + o.width && y < o.y + o.height)) return 2;
+          const gx = Math.floor((x - crop.x) / g.cell), gy = Math.floor((y - crop.y) / g.cell);
+          return gx >= 0 && gy >= 0 && gx < g.cols && gy < g.rows && g.data[gy * g.cols + gx] > 0.04 ? 1 : 0;
+        }
+
+        // Letter by letter beside the original, along a line parallel to its characters, where
+        // that is as clear of its strokes as the straight line and its letters as big.
+        function followBeside(job) {
+          const chars = plan.strokes && sfxCharacters(plan.strokes, crop.width, crop.height, sfxCount(r.original));
+          if (!chars) return null;
+          const usual = [...chars.map(c => c.size)].sort((a, b) => a - b)[chars.length >> 1];
+          const normals = chars.map((c, i) => {
+            const p = chars[Math.max(0, i - 1)], q = chars[Math.min(chars.length - 1, i + 1)], len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+            return [-(q.y - p.y) / len, (q.x - p.x) / len];
+          });
+          // The share of the letters' area that is bad (badAt), in page pixels.
+          const cost = letters => {
+            let bad = 0, all = 0;
+            for (const l of letters) {
+              if (!l.ch.trim()) continue;
+              const c = Math.cos(l.angle), sn = Math.sin(l.angle);
+              for (let a = -0.5; a <= 0.5; a += 0.25) for (let b = -0.45; b <= 0.45; b += 0.225) {
+                const u = a * l.width, v = b * l.size;
+                bad += badAt((l.x + u * c - v * sn) * scale, (l.y + u * sn + v * c) * scale); all++;
+              }
+            }
+            return all ? bad / all : 1;
+          };
+          let found = null;
+          for (let top = Math.max(1, Math.min(glyph * 0.25, W * 0.1) / best.size); top >= 0.95; top *= 0.88) {
+            for (const side of [-1, 1]) for (const gap of [0.6, 0.8, 1, 1.3, 1.7]) {
+              const points = chars.map((c, i) => {
+                const away = c.size * 0.5 + best.size * top * gap;
+                return {x: (crop.x + c.x + side * normals[i][0] * away) / scale, y: (crop.y + c.y + side * normals[i][1] * away) / scale,
+                  size: best.size * c.size / usual / scale, angle: c.angle};
+              });
+              const run = lettersAlong(points, job.text, font, top, best.size * 0.95 / scale);
+              if (!run) continue;
+              const bad = cost(run.letters), score = bad * 4 + gap * 0.05 - run.size / (best.size / scale) * 0.1;
+              if (!found || score < found.score) found = {run, bad, score};
+            }
+            if (found && found.bad <= 0.04) break;
+          }
+          if (!found || found.bad > Math.max(0.05, best.cost + 0.01)) return null;
+          return {...job, letters: found.run.letters, rotate: null};
+        }
 
         // The best place for the translation at this size: {x, y, cost, score, size, bw, bh}.
         function besideSpot(size) {
@@ -2798,12 +3114,7 @@
         const cost = (px, py) => {
           let bad = 0, all = 0;
           for (let a = -0.5; a <= 0.5; a += 1 / 24) for (let b = -0.4; b <= 0.4; b += 0.1) {
-            const x = px + a * bw * cos - b * bh * sin, y = py + a * bw * sin + b * bh * cos;
-            all++;
-            if (x < panel.x || y < panel.y || x >= panel.x + panel.width || y >= panel.y + panel.height) { bad += 2; continue; }
-            const gx = Math.floor((x - crop.x) / g.cell), gy = Math.floor((y - crop.y) / g.cell);
-            if (gx >= 0 && gy >= 0 && gx < g.cols && gy < g.rows && g.data[gy * g.cols + gx] > 0.04) bad++;
-            if (bubbles.some(o => x >= o.x && y >= o.y && x < o.x + o.width && y < o.y + o.height)) bad += 2;
+            bad += badAt(px + a * bw * cos - b * bh * sin, py + a * bw * sin + b * bh * cos); all++;
           }
           return bad / all;
         };
@@ -2840,6 +3151,7 @@
           room: Math.round(j.maxSize), ...(r.kind !== 'loose' ? {enclosed: !!r.enclosed} : {}),
           ...(r.region ? {region: [r.region.x, r.region.y, r.region.width, r.region.height].map(v => Math.round(v / scale))} : {}),
           ...(r.plan?.beside ? {beside: true} : {}),
+          ...(j.letters ? {follow: true} : {}),
           ...(r.plan?.style ? {weight: +r.plan.style.weight.toFixed(3), slant: Math.round(r.plan.style.angle * 180 / Math.PI), font: plan.font.split(',')[0]} : {})});
         translated++;
       });
@@ -3099,6 +3411,11 @@
    * Returns {size, lines, rows, first, font, widths} or null when there is no room at all.
    */
   function fitText(ctx, r, s, imageWidth) {
+    // Letter by letter along a path (a sound effect following its original): placed already.
+    if (r.letters) {
+      const sizes = r.letters.map(l => l.size).sort((a, b) => a - b);
+      return {size: sizes[sizes.length >> 1], letters: r.letters, lines: [r.letters.map(l => l.ch).join('')], font: r.font, rows: [{cx: 0, width: 0}], first: 0, widths: [0]};
+    }
     const box = r.layout;
     if (!box || box.width < 4 || box.height < 4) return null;
     const info = languageInfo(s.target);
@@ -3203,8 +3520,18 @@
     return plan;
   }
 
-  /** The box a fitText plan's lines cover: [x, y, width, height]. */
+  // The corners of a letter placed on its own ({x, y, size, angle, width}), outline included.
+  function letterCorners(l) {
+    const hw = l.width / 2 + l.size * 0.08, hh = l.size * 0.45, c = Math.cos(l.angle), sn = Math.sin(l.angle);
+    return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([u, v]) => [l.x + u * c - v * sn, l.y + u * sn + v * c]);
+  }
+
+  /** The box a fitText plan's lines (or letters) cover: [x, y, width, height]. */
   function letteredBox(plan) {
+    if (plan.letters) {
+      const corners = plan.letters.filter(l => l.ch.trim()).flatMap(letterCorners), xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+    }
     const step = plan.size * 1.12, top = plan.first - step / 2;
     const left = Math.min(...plan.lines.map((_, i) => plan.rows[i].cx - plan.widths[i] / 2));
     const right = Math.max(...plan.lines.map((_, i) => plan.rows[i].cx + plan.widths[i] / 2));
@@ -3229,28 +3556,39 @@
   function drawText(ctx, plan, style) {
     ctx.save();
     const k = fontScale(ctx, plan.font), capped = k !== 1;
-    ctx.font = `${fontWeight(plan.font)} ${plan.size * k}px ${plan.font}`;
     ctx.textAlign = 'center'; ctx.textBaseline = capped ? 'alphabetic' : 'middle'; ctx.lineJoin = 'round';
-    if (style.rotate) {
+    if (style.rotate && !plan.letters) {
       ctx.translate(style.rotate.cx, style.rotate.cy); ctx.rotate(style.rotate.angle); ctx.translate(-style.rotate.cx, -style.rotate.cy);
     }
-    const step = plan.size * 1.12, drop = capped ? plan.size * 0.36 : 0;
-    const each = paint => plan.lines.forEach((line, i) => paint(line, plan.rows[i].cx, plan.first + i * step + drop, plan.rows[i].width));
+    // The lines, or the letters each at its own place, size and tilt (letter by letter).
+    const step = plan.size * 1.12;
+    const items = plan.letters ? plan.letters.filter(l => l.ch.trim()).map(l => ({text: l.ch, x: l.x, y: l.y, size: l.size, angle: l.angle}))
+      : plan.lines.map((line, i) => ({text: line, x: plan.rows[i].cx, y: plan.first + i * step, size: plan.size, width: plan.rows[i].width}));
     // Lettering heavier than the font: thicken every stroke by the difference (capitals are 0.72
     // of the size).
-    // Soft like the original (a blurred sound effect).
-    if (style.blur >= 0.8) ctx.filter = `blur(${Math.min(plan.size * 0.05, style.blur * 0.6).toFixed(2)}px)`;
-    const own = SFX_WEIGHTS.get(plan.font), extra = own && style.weight > own ? Math.min(plan.size * 0.1, (style.weight - own) * plan.size * 0.72) : 0;
-    if (style.outline) {
-      ctx.strokeStyle = style.outline; ctx.lineWidth = Math.max(2, plan.size * (style.outlineWidth || 0.16)) + extra;
-      each((...a) => ctx.strokeText(...a));
-    }
-    ctx.fillStyle = style.color;
-    if (extra >= 0.6) {
-      ctx.strokeStyle = style.color; ctx.lineWidth = extra;
-      each((...a) => ctx.strokeText(...a));
-    }
-    each((...a) => ctx.fillText(...a));
+    const own = SFX_WEIGHTS.get(plan.font), extra = size => own && style.weight > own ? Math.min(size * 0.1, (style.weight - own) * size * 0.72) : 0;
+    // Every outline first, then every fill, so no letter's outline covers its neighbour.
+    const each = draw => items.forEach(it => {
+      ctx.font = `${fontWeight(plan.font)} ${it.size * k}px ${plan.font}`;
+      // Soft like the original (a blurred sound effect).
+      if (style.blur >= 0.8) ctx.filter = `blur(${Math.min(it.size * 0.05, style.blur * 0.6).toFixed(2)}px)`;
+      const drop = capped ? it.size * 0.36 : 0;
+      if (it.angle === undefined) { draw(it, it.x, it.y + drop); return; }
+      ctx.save();
+      ctx.translate(it.x, it.y); ctx.rotate(it.angle);
+      draw(it, 0, drop);
+      ctx.restore();
+    });
+    const args = (it, x, y) => it.width === undefined ? [it.text, x, y] : [it.text, x, y, it.width];
+    if (style.outline) each((it, x, y) => {
+      ctx.strokeStyle = style.outline; ctx.lineWidth = Math.max(2, it.size * (style.outlineWidth || 0.16)) + extra(it.size);
+      ctx.strokeText(...args(it, x, y));
+    });
+    each((it, x, y) => {
+      ctx.fillStyle = style.color;
+      if (extra(it.size) >= 0.6) { ctx.strokeStyle = style.color; ctx.lineWidth = extra(it.size); ctx.strokeText(...args(it, x, y)); }
+      ctx.fillText(...args(it, x, y));
+    });
     ctx.restore();
   }
 
@@ -3262,7 +3600,7 @@
 
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
-      planLooseErase, planColourErase, planOutlinedErase, planBeside, eraseHolds, repaintHolds, largeSFXJob, consensusReading, editDistance, extremeInk, LARGE_SFX, applyErase, inpaint, smoothFill, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
+      planLooseErase, planColourErase, planOutlinedErase, planBeside, sfxCharacters, alongPath, sfxCount, eraseHolds, repaintHolds, largeSFXJob, consensusReading, editDistance, extremeInk, LARGE_SFX, applyErase, inpaint, smoothFill, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
       browserTarget, paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;

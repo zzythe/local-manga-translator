@@ -843,3 +843,62 @@ test('black letters in a white rim on dark art are lettered black with a light o
   assert.ok(lum(plan.color) < 40, plan.color);
   assert.ok(plan.outline && lum(plan.outline) > 150, String(plan.outline));
 });
+
+// ---------- sound effects lettered letter by letter ----------
+// A mask with kana-like characters: each a box outline with a bar, `size` px, turned by `angle`
+// about its centre, plus a dakuten-like dot above the first; [{x, y, size, angle}].
+function sfxMask(w, h, chars) {
+  const mask = new Uint8Array(w * h);
+  for (const [k, c] of chars.entries()) {
+    const cos = Math.cos(c.angle || 0), sin = Math.sin(c.angle || 0), half = c.size / 2, t = Math.max(2, c.size * 0.12);
+    for (let y = Math.floor(c.y - c.size); y <= c.y + c.size; y++) for (let x = Math.floor(c.x - c.size); x <= c.x + c.size; x++) {
+      const u = (x - c.x) * cos + (y - c.y) * sin, v = (y - c.y) * cos - (x - c.x) * sin;
+      if (Math.abs(u) > half || Math.abs(v) > half) continue;
+      if (half - Math.abs(u) < t || half - Math.abs(v) < t || Math.abs(v) < t / 2) mask[y * w + x] = 1;
+    }
+    if (k === 0) for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) mask[Math.round(c.y - half - 5 + y) * w + Math.round(c.x + half * 0.5 + x)] = 1;
+  }
+  return mask;
+}
+const near = (a, b, d) => Math.abs(a - b) <= d;
+
+test('a sound effect on a straight slant is split into its characters, in order', () => {
+  const truth = [0, 1, 2, 3].map(i => ({x: 40 + i * 30 * Math.cos(0.35), y: 100 - i * 30 * Math.sin(0.35), size: 22, angle: 0}));
+  const chars = t.sfxCharacters(sfxMask(220, 160, truth), 220, 160, t.sfxCount('ゴクゴク'));
+  assert.ok(chars && chars.length === 4, 'four characters');
+  chars.forEach((c, i) => {
+    assert.ok(near(c.x, truth[i].x, 3) && near(c.y, truth[i].y, 3), `centre ${i}`);
+    assert.ok(near(c.size, 22, 3) && near(c.angle, 0, 0.05), `size and tilt ${i}`);
+  });
+  // Drawn touching (one piece): no split.
+  const touching = [0, 1, 2, 3].map(i => ({x: 40 + i * 20, y: 80, size: 22}));
+  assert.equal(t.sfxCharacters(sfxMask(220, 160, touching), 220, 160, 4), null);
+});
+
+test('a sound effect that grows keeps its growing sizes, letter by letter', () => {
+  const truth = [14, 20, 26, 32].map((size, i) => ({x: 30 + [0, 22, 50, 84][i], y: 80, size}));
+  const chars = t.sfxCharacters(sfxMask(200, 160, truth), 200, 160, 4);
+  assert.ok(chars && chars.length === 4);
+  chars.forEach((c, i) => assert.ok(near(c.size, truth[i].size, 3), `size ${i}: ${c.size}`));
+  // Letters along it: the first on the first character, the last on the last, getting bigger.
+  const run = t.alongPath(chars, [0.7, 0.7, 0.7, 0.7, 0.7], 1);
+  assert.ok(run && run.letters.length === 5);
+  assert.ok(near(run.letters[0].x, chars[0].x, 0.5) && near(run.letters[4].x, chars[3].x, 0.5));
+  for (let i = 1; i < 5; i++) assert.ok(run.letters[i].size > run.letters[i - 1].size && run.letters[i].x > run.letters[i - 1].x);
+});
+
+test('a sound effect on a curve is followed round it, each letter turned with it', () => {
+  // Five characters on an arc, each turned with the curve.
+  const truth = [-0.5, -0.25, 0, 0.25, 0.5].map(a => ({x: 150 + 130 * Math.sin(a), y: 190 - 130 * Math.cos(a), size: 26, angle: a}));
+  const chars = t.sfxCharacters(sfxMask(300, 200, truth), 300, 200, 5);
+  assert.ok(chars && chars.length === 5);
+  chars.forEach((c, i) => assert.ok(near(c.x, truth[i].x, 3) && near(c.y, truth[i].y, 3), `centre ${i}`));
+  assert.ok(chars[0].angle < -0.2 && chars[4].angle > 0.2 && near(chars[2].angle, 0, 0.1), chars.map(c => c.angle.toFixed(2)).join());
+  const run = t.alongPath(chars, Array(7).fill(0.65), 1);
+  assert.ok(run.spread >= 0.95 && run.steep < 0.6);
+  // Evenly spread from end to end, rising then falling, turned as they go.
+  const gaps = run.letters.slice(1).map((l, i) => Math.hypot(l.x - run.letters[i].x, l.y - run.letters[i].y));
+  assert.ok(Math.max(...gaps) - Math.min(...gaps) < Math.max(...gaps) * 0.25, gaps.map(Math.round).join());
+  assert.ok(run.letters[3].y < run.letters[0].y - 10 && run.letters[3].y < run.letters[6].y - 10, run.letters.map(l => Math.round(l.y)).join());
+  assert.ok(run.letters[0].angle < -0.2 && run.letters[6].angle > 0.2);
+});
