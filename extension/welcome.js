@@ -2,6 +2,7 @@
 // noticing each step as soon as it's done. Also shows the free-plan meter and Pro.
 const $ = id => document.getElementById(id);
 const ask = message => chrome.runtime.sendMessage(message);
+let detectorAsked = false;
 const VISION = /qwen3-vl|qwen2\.5vl|vl|vision|llava|gemma3|minicpm-v|pixtral|llama4/i;
 
 const gb = bytes => (bytes / 1e9).toFixed(bytes >= 1e10 ? 0 : 1) + ' GB';
@@ -55,6 +56,8 @@ function render() {
     $('model-download').disabled = true;
   } else if (vision.length && !downloading && !choosing) {
     setState('step-model', 'done', 'Ready');
+    // Fetch the text detector now (44 MB, once), so the first page doesn't wait for it.
+    if (!detectorAsked) { detectorAsked = true; ask({type: 'prepare-detector'}).catch(() => {}); }
     $('model-choices').hidden = true; $('model-download').hidden = true; $('model-progress').hidden = true;
     $('model-ok').textContent = `Installed: ${vision.map(m => `${m.name} (${gb(m.size)})`).join(', ')}.`;
   } else if (!downloading) {

@@ -39,6 +39,22 @@ await page.route('http://quality.test/**', route => {
   return route.fulfill({contentType: type || 'application/octet-stream', body: readFileSync(join(here, 'pages', decodeURIComponent(path)))});
 });
 
+// --detector=path/to/detector.onnx: the local text detector, run here with onnxruntime-node.
+let detector = null;
+if (option('detector')) {
+  const ort = await import('onnxruntime-node');
+  // An ES module for the extension, in a CommonJS package: loaded from its source text.
+  const {detectText} = await import('data:text/javascript,' + encodeURIComponent(readFileSync(join(root, 'extension/text-detector.js'), 'utf8')));
+  const session = await ort.InferenceSession.create(option('detector'));
+  detector = {ms: 0, run: (rgba, w, h) => detectText(ort, session, rgba, w, h)};
+  await page.exposeFunction('detectText', async (data, w, h) => {
+    const started = Date.now();
+    const found = await detector.run(Buffer.from(data, 'base64'), w, h);
+    detector.ms += Date.now() - started;
+    return found;
+  });
+}
+
 let calls = [];
 await page.exposeFunction('askOllama', async job => {
   const started = Date.now();
@@ -80,6 +96,14 @@ for (const name of pages) {
     await img.decode();
     // A fresh pipeline per page, like a reader opening one chapter page after another would share
     // one; pages here are from different episodes, so context would only mislead.
+    if (globalThis.detectText) env.detectText = async crop => {
+      const c = Object.assign(document.createElement('canvas'), {width: 640, height: 640});
+      c.getContext('2d').drawImage(crop, 0, 0, 640, 640);
+      const rgba = c.getContext('2d').getImageData(0, 0, 640, 640).data;
+      let bin = '';
+      for (let i = 0; i < rgba.length; i += 0x8000) bin += String.fromCharCode(...rgba.subarray(i, i + 0x8000));
+      return globalThis.detectText(btoa(bin), crop.width, crop.height);
+    };
     const pipeline = M.createPipeline(env);
     const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j))), report: () => {}};
     const out = await pipeline.translate(img, {source, target: 'English', uppercase: true, terms}, job);

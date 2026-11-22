@@ -251,9 +251,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'setup') openWelcome();
 });
 
+/* ------------------------------------------------------------------------------------------
+ * The local text detector (detector.js). Chrome runs it in an offscreen document, since a
+ * service worker can't start the threads it uses; Firefox in this background page.
+ * ---------------------------------------------------------------------------------------- */
+
+let detectorPage = null;
+function toDetector(message) {
+  if (!chrome.offscreen) return import('./detector.js').then(m => m.handle(message));
+  detectorPage ??= chrome.offscreen.hasDocument().then(open => open || chrome.offscreen.createDocument({
+    url: 'detector.html', reasons: ['WORKERS'], justification: 'Runs the text detector that finds speech bubbles on comic pages.'
+  })).finally(() => { detectorPage = null; });
+  return detectorPage.then(() => chrome.runtime.sendMessage({...message, target: 'detector'}));
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (message?.target) return false; // for the detector page
   const answer = promise => { promise.then(reply, error => reply({error: String(error?.message || error)})); return true; };
   switch (message?.type) {
+    case 'detect': case 'prepare-detector': return answer(toDetector({...message, type: message.type === 'detect' ? 'detect' : 'prepare'}));
     case 'plan': return answer(plan());
     case 'used': return answer(recordPage(message.image));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));

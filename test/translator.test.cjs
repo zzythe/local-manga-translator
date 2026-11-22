@@ -135,7 +135,8 @@ test('looseRegions keeps text outside bubbles and drops repeats of bubble text',
     {x: 120, y: 175, width: 70, height: 40, original: '我一直在等你！'}, // rough box beside it, same words
     {x: 300, y: 120, width: 40, height: 80, original: '碎碎念'},       // muttering next to a head
     {x: 600, y: 600, width: 50, height: 30, original: '我一直在等你'},   // the same words far away
-    {x: 400, y: 400, width: 30, height: 30, original: '…！'}           // punctuation only
+    {x: 400, y: 400, width: 30, height: 30, original: '…！'},          // punctuation only
+    {x: 700, y: 900, width: 30, height: 20, original: '18'}           // a page number
   ];
   const loose = t.looseRegions(regions, [bubble]).map(r => r.x);
   assert.deepEqual(loose, [300, 600]);
@@ -665,4 +666,18 @@ test('the reader\'s names and terms go to the translator when their lines need t
   const job = t.translationJob({source: 'Japanese', target: 'English'}, [{id: 0, original: 'シチミ？'}], [], false, used);
   assert.deepEqual(JSON.parse(job.user).terms, [{original: 'シチミ', translation: 'Shichimi'}, {original: 'リア', translation: 'Rea'}]);
   assert.ok(!('terms' in JSON.parse(t.translationJob({source: 'Japanese', target: 'English'}, [], [], false).user)));
+});
+
+test('detector boxes of bubble text become regions of the page; its boxes on the artwork do not', () => {
+  const tile = {x: 0, y: 1000, width: 1600, height: 2200, start: 1000, end: 3000};
+  const found = [
+    {label: 'text_bubble', score: 0.9, x: 100, y: 50, width: 80, height: 40},
+    {label: 'text_bubble', score: 0.1, x: 300, y: 50, width: 80, height: 40},   // unsure
+    {label: 'text_free', score: 0.6, x: 500, y: 50, width: 80, height: 40},     // left to the model
+    {label: 'bubble', score: 0.9, x: 90, y: 40, width: 100, height: 60}
+  ];
+  const regions = t.detectedRegions(found, tile, 0.5);
+  assert.equal(regions.length, 1);
+  assert.deepEqual([regions[0].x, regions[0].y, regions[0].width, regions[0].height], [200, 1100, 160, 80]);
+  assert.equal(regions[0].original, '');
 });

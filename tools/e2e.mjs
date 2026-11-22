@@ -53,6 +53,13 @@ try {
     await welcome.screenshot({path: join(out, 'welcome.png'), fullPage: true});
   }
 
+  // The setup page fetches the text detector; wait for it so the sample pages use it.
+  const t1 = Date.now();
+  const prepared = await sw.evaluate(() => toDetector({type: 'prepare'}));
+  const stats0 = await sw.evaluate(() => toDetector({type: 'stats'}));
+  check('text detector downloaded and loaded', prepared?.ready === true,
+    `${((Date.now() - t1) / 1000).toFixed(0)} s, ${stats0?.threads} threads${prepared?.error ? ', ' + prepared.error : ''}`);
+
   // 2. The sample page translates both pages.
   const demo = await ctx.newPage();
   const t0 = Date.now();
@@ -63,6 +70,8 @@ try {
   await demo.waitForFunction(() => [...document.querySelectorAll('.reader img')].filter(i => i.src.startsWith('blob:')).length >= 2, null, {timeout: 300000});
   check('sample page 2 translated', true, `${((Date.now() - t0) / 1000).toFixed(0)} s total`);
   await demo.locator('.reader img').first().screenshot({path: join(out, 'demo-page1-translated.png')});
+  const stats = await sw.evaluate(() => toDetector({type: 'stats'}));
+  check('sample pages used the text detector', stats?.runs >= 2, JSON.stringify(stats));
   let plan = await sw.evaluate(() => plan());
   check('meter counted 2 pages', plan.used === 2, JSON.stringify(plan));
 

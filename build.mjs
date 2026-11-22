@@ -42,6 +42,10 @@ function buildExtension(name, editManifest) {
   const out = join(dist, name);
   cpSync(join(root, 'extension'), out, {recursive: true});
   cpSync(join(root, 'node_modules/extpay/dist/ExtPay.js'), join(out, 'ExtPay.js'));
+  // onnxruntime-web (MIT) for the local text detector: the WebAssembly build only.
+  mkdirSync(join(out, 'ort'), {recursive: true});
+  for (const f of ['ort.wasm.min.mjs', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'])
+    cpSync(join(root, 'node_modules/onnxruntime-web/dist', f), join(out, 'ort', f));
   mkdirSync(join(out, 'fonts'), {recursive: true});
   for (const f of fonts) {
     writeFileSync(join(out, 'fonts', f.file), f.data);
@@ -58,7 +62,7 @@ buildExtension('firefox', m => {
   // Firefox runs background scripts as an event page instead of a service worker.
   m.background = {scripts: ['ExtPay.js', 'config.js', 'background.js']};
   delete m.minimum_chrome_version;
-  m.permissions = m.permissions.map(p => p === 'declarativeNetRequestWithHostAccess' ? 'declarativeNetRequest' : p);
+  m.permissions = m.permissions.map(p => p === 'declarativeNetRequestWithHostAccess' ? 'declarativeNetRequest' : p).filter(p => p !== 'offscreen');
   m.host_permissions = [...m.host_permissions, 'https://extensionpay.com/*'];
   m.browser_specific_settings = {gecko: {id: 'local-manga-translator@zzythe', strict_min_version: '128.0',
     data_collection_permissions: {required: ['none']}}};

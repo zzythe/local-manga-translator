@@ -3,6 +3,8 @@
 | Component | Where | Licence |
 |---|---|---|
 | [ExtPay.js](https://github.com/Glench/ExtPay) | `ExtPay.js` in the extension (payments) | MIT |
+| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | `ort/` in the extension, runs the text detector | MIT |
+| [comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) by ogkalu (RT-DETR, int8) | downloaded once by the extension from Hugging Face; not bundled | Apache 2.0 |
 | [Comic Neue](https://github.com/crozynski/comicneue) Bold | bundled font for dialogue | SIL Open Font License 1.1 |
 | [Kaushan Script](https://fonts.google.com/specimen/Kaushan+Script), subset and renamed MLT Brush Crisp | bundled font for thin sound effects | SIL Open Font License 1.1 |
 | [Knewave](https://fonts.google.com/specimen/Knewave) | bundled font for heavy sound effects | SIL Open Font License 1.1 |

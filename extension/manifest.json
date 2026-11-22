@@ -10,7 +10,7 @@
     "default_icon": {"16": "icons/icon16.png", "32": "icons/icon32.png"}
   },
   "background": {"service_worker": "background.js"},
-  "permissions": ["storage", "scripting", "contextMenus", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["storage", "scripting", "contextMenus", "declarativeNetRequestWithHostAccess", "offscreen"],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {"matches": ["http://*/*", "https://*/*"], "js": ["loader.js"], "run_at": "document_idle"},
@@ -20,5 +20,8 @@
     "_execute_action": {"suggested_key": {"default": "Alt+Shift+T"}, "description": "Translate this page"}
   },
   "options_ui": {"page": "welcome.html", "open_in_tab": true},
+  "content_security_policy": {"extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"},
+  "cross_origin_embedder_policy": {"value": "require-corp"},
+  "cross_origin_opener_policy": {"value": "same-origin"},
   "minimum_chrome_version": "116"
 }
