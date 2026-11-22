@@ -12,8 +12,8 @@
     "icons": "node tools/render-icons.mjs"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "zzythe",
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "commonjs",
   "devDependencies": {
     "archiver": "^8.0.0",

@@ -3172,6 +3172,7 @@
     select { width: 100%; min-width: 0; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); padding: 5px 8px;
       font: 500 14px system-ui, "Segoe UI", sans-serif; }
     .check { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+    .check[hidden] { display: none; }
     textarea { width: 100%; min-width: 0; resize: vertical; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper);
       padding: 5px 8px; color: inherit; font: 500 13px/1.4 system-ui, "Segoe UI", sans-serif; }
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex: none; }
@@ -3313,6 +3314,8 @@
       $('font').value = [...$('font').options].some(o => o.value === settings.font) ? settings.font : 'auto';
     });
     $('always-label').textContent = `Translate ${host} automatically`;
+    // The extension's own sample page isn't a site anyone would add.
+    $('always').closest('label').hidden = !/^https?:$/.test(location.protocol);
     const changed = () => {
       const fontChanged = settings.font !== $('font').value;
       const languageChanged = settings.source !== $('source').value || settings.target !== $('target').value || settings.model !== $('model').value ||

@@ -103,8 +103,8 @@ try {
   });
   await demo.evaluate(() => document.querySelector('manga-translator').shadowRoot.getElementById('gear').click());
   let p = await panel();
-  check('panel: Into from the browser language, the site setting, the rest under More', p.into === 'English' && /^en(-|$)/.test(p.language) &&
-    p.auto === `Translate ${id} automatically` && !p.moreOpen && p.visible.join() === '#target,#always' && !p.detector, JSON.stringify(p));
+  check('panel: Into from the browser language, no site setting on the sample page, the rest under More', p.into === 'English' && /^en(-|$)/.test(p.language) &&
+    p.auto === `Translate ${id} automatically` && !p.moreOpen && p.visible.join() === '#target' && !p.detector, JSON.stringify(p));
   check('panel labels in the system font, title in Comic Neue', !/MangaLettering/.test(p.labelFont) && /^system-ui/.test(p.labelFont) &&
     /^MangaTranslatorUI/.test(p.titleFont), `${p.labelFont} | ${p.titleFont}`);
   await demo.evaluate(() => document.querySelector('manga-translator').shadowRoot.querySelector('#more > summary').click());
