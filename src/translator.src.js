@@ -3067,8 +3067,8 @@
     const pipeline = createPipeline(browserEnv);
     let fontReady = loadLetteringFont(settings.font).catch(() => []);
     const pages = new Map();  // img -> {source, status, url, nodes, showing, error, mark}
-    let paused = false, stopped = false, busy = false, showOriginals = false, ready = false, done = 0;
-    let current = null;       // img being translated
+    let paused = false, stopped = false, showOriginals = false, ready = false, done = 0;
+    const working = new Set(); // imgs being translated
 
     const element = document.createElement('manga-translator');
     const root = element.attachShadow({mode: 'closed'});
@@ -3290,24 +3290,75 @@
 
     /* ---------- Work queue: nearest page first ---------- */
 
+    // Pages on screen first (0), then those below, then those above.
+    function distanceOf(img) {
+      const r = img.getBoundingClientRect();
+      return r.bottom < 0 ? -r.bottom * 1.5 + 1 : r.top > innerHeight ? r.top - innerHeight + 1 : 0;
+    }
+
     function nextPage() {
       let best = null, bestDistance = Infinity;
       for (const img of nearby) {
         const page = pages.get(img);
         if (!page || page.status !== 'queued') continue;
-        const r = img.getBoundingClientRect();
-        // Pages on screen first, then those below, then those above.
-        const distance = r.bottom < 0 ? -r.bottom * 1.5 + 1 : r.top > innerHeight ? r.top - innerHeight + 1 : 0;
+        const distance = distanceOf(img);
         if (distance < bestDistance) { best = img; bestDistance = distance; }
       }
       return best;
     }
 
+    // Reading ahead, two pages at once: one is drawn, cleaned and lettered while the model reads
+    // the other (Ollama answers one request at a time for these models), about a fifth more pages
+    // a minute. A page on screen is translated alone, so it is not kept waiting; and only when
+    // the model is wholly in video memory: otherwise Ollama needs the processor too.
+    let roomy = {at: 0, value: false};
+    async function readAheadLanes() {
+      if (Date.now() - roomy.at > 60000) {
+        roomy.at = Date.now();
+        try {
+          const loaded = ((await ollamaJSON('/api/ps', undefined, 3000)).models || []).find(m => m.name === settings.model || m.model === settings.model);
+          roomy.value = !!loaded && loaded.size_vram >= loaded.size;
+        } catch { roomy.value = false; }
+      }
+      return roomy.value ? 2 : 1;
+    }
+
+    // One model request at a time, the page nearest the screen first.
+    const waiting = [];
+    let asking = false;
+    function inTurn(img, fn) {
+      return new Promise((resolve, reject) => {
+        waiting.push({img, run: () => fn().then(resolve, reject).finally(() => { asking = false; nextRequest(); })});
+        nextRequest();
+      });
+    }
+    function nextRequest() {
+      if (asking || !waiting.length) return;
+      let k = 0;
+      for (let i = 1; i < waiting.length; i++) if (distanceOf(waiting[i].img) < distanceOf(waiting[k].img)) k = i;
+      asking = true;
+      waiting.splice(k, 1)[0].run();
+    }
+
+    let starting = false;
     async function pump() {
-      if (busy || paused || stopped || !ready || blocked) return idleStatus();
+      if (starting) return;
+      if (paused || stopped || !ready || blocked) return working.size ? undefined : idleStatus();
       const img = nextPage();
-      if (!img) return idleStatus();
-      busy = true; current = img;
+      if (!img) return working.size ? undefined : idleStatus();
+      if (working.size) {
+        // A second page only when reading ahead.
+        if ([...working].some(i => distanceOf(i) === 0)) return;
+        starting = true;
+        const lanes = await readAheadLanes().finally(() => { starting = false; });
+        if (working.size >= lanes || stopped || paused || pages.get(img)?.status !== 'queued') return;
+      }
+      translatePage(img);
+      pump();
+    }
+
+    async function translatePage(img) {
+      working.add(img);
       const page = pages.get(img);
       page.status = 'working'; renderMarks(); progress();
       const following = nextAfter(img);
@@ -3325,7 +3376,8 @@
         if (EXTENSION) {
           const p = await refreshPlan();
           if (pages.get(img) !== page || stopped) return;
-          if (p && !p.pro && p.used >= p.limit) { page.status = 'limited'; blocked = true; return; }
+          // (A page being read ahead beside this one counts too.)
+          if (p && !p.pro && p.used + working.size - 1 >= p.limit) { page.status = 'limited'; blocked = true; return; }
         }
         say('Translating', 'Downloading the page…');
         const blob = await fetchBlob(page.source);
@@ -3334,7 +3386,7 @@
         try {
           if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
           await fontReady;
-          const result = await pipeline.translate(bitmap, settings, {ask, report: text => say('Translating', text), stopped: () => stopped || pages.get(img) !== page});
+          const result = await pipeline.translate(bitmap, settings, {ask: job => inTurn(img, () => ask(job)), report: text => say('Translating', text), stopped: () => stopped || pages.get(img) !== page});
           if (pages.get(img) !== page) return;
           if (result.canvas) {
             const big = result.canvas.width * result.canvas.height > 8e6;
@@ -3358,7 +3410,7 @@
         }
         if (error.code !== 'ABORT' && /Ollama stopped|Network/.test(error.message)) offline();
       } finally {
-        busy = false; current = null;
+        working.delete(img);
         renderMarks(); progress();
         if (!stopped) setTimeout(pump, 0);
       }
@@ -3384,7 +3436,7 @@
     }
 
     function idleStatus() {
-      if (stopped || busy || !ready) return;
+      if (stopped || working.size || !ready) return;
       const failed = [...pages.values()].filter(p => p.status === 'failed');
       if (blocked) say('Today’s free pages are used up', 'They come back at midnight. Pro translates without a limit.');
       else if (paused) say('Paused', `${done} page${done === 1 ? '' : 's'} translated`);

@@ -5,6 +5,7 @@
 //   tools/quality/out/<name>.json         what was read, translated and where it was lettered
 //     node build.mjs && node tools/quality/run.mjs [name-filter] [--source=Japanese] [--model=qwen3-vl:4b-instruct]
 //       [--out=out] [--unload] [--pause=30]   unload the model after each page, wait 30 s between pages
+//       [--concurrency=2]   after the first page, translate this many at once, as when reading ahead
 import {chromium} from 'playwright-core';
 import {readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync} from 'node:fs';
 import {join, dirname, extname} from 'node:path';
@@ -18,7 +19,7 @@ const model = option('model', 'qwen3-vl:4b-instruct'), source = option('source',
 const outDir = join(here, option('out', 'out'));
 // --terms=terms.txt: the reader's names and terms (one per line, シチミ = Shichimi), as in settings.
 const terms = option('terms') ? readFileSync(join(here, option('terms')), 'utf8') : '';
-const unload = args.includes('--unload'), pause = Number(option('pause', 0));
+const unload = args.includes('--unload'), pause = Number(option('pause', 0)), concurrency = Number(option('concurrency', 1));
 mkdirSync(outDir, {recursive: true});
 
 // The built userscript, made to hand its internals to the page instead of starting its UI.
@@ -65,12 +66,28 @@ if (detectorFile) {
   });
 }
 
-let calls = [];
-await page.exposeFunction('askOllama', async job => {
+const callsOf = new Map();
+// As in the extension: one request at a time (Ollama runs one at a time for this model anyway),
+// the earliest page first, so pages read ahead do not hold up the one on screen.
+const waiting = [];
+let asking = false;
+const turn = priority => new Promise(resolve => { waiting.push({priority, resolve}); next(); });
+const next = () => {
+  if (asking || !waiting.length) return;
+  waiting.sort((a, b) => a.priority - b.priority);
+  asking = true;
+  waiting.shift().resolve(() => { asking = false; next(); });
+};
+await page.exposeFunction('askOllama', async (job, name) => {
+  const calls = callsOf.get(name);
+  const done = await turn(pages.indexOf(name));
   const started = Date.now();
-  const response = await fetch('http://127.0.0.1:11434/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(job)});
-  const body = await response.json();
+  let body;
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(job)});
+    body = await response.json();
+  } finally { done(); }
   const s = ns => Math.round((ns || 0) / 1e6);
   calls.push({ms: Date.now() - started, kind: job.messages[0].content.slice(0, 40), images: job.messages[1].images?.length || 0,
     loadMs: s(body?.load_duration), promptTokens: body?.prompt_eval_count, promptMs: s(body?.prompt_eval_duration),
@@ -88,9 +105,14 @@ await page.evaluate(async () => {
 });
 
 console.log(`Helper models: ${detectorFile ? 'detector' : 'no detector'}, ${inpainterFile ? 'inpainter' : 'no inpainter'}.`);
-const summary = [];
-for (const name of pages) {
-  calls = [];
+const summary = [], runStarted = Date.now();
+let nextIndex = 0;
+async function worker() {
+  while (nextIndex < pages.length) await translatePage(pages[nextIndex++]);
+}
+async function translatePage(name) {
+  const calls = [];
+  callsOf.set(name, calls);
   const started = Date.now();
   const result = await page.evaluate(async ({name, model, source, terms}) => {
     const M = globalThis.MLT;
@@ -119,7 +141,7 @@ for (const name of pages) {
     if (globalThis.inpaintImage) env.inpaint = async (img, mask) =>
       Uint8Array.from(atob(await globalThis.inpaintImage(b64(img.data), b64(mask), img.width, img.height)), c => c.charCodeAt(0));
     const pipeline = M.createPipeline(env);
-    const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j))), report: () => {}};
+    const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j), name)), report: () => {}};
     const out = await pipeline.translate(img, {source, target: 'English', uppercase: true, terms}, job);
     const translated = out.canvas || img;
     const side = document.createElement('canvas');
@@ -138,12 +160,18 @@ for (const name of pages) {
   writeFileSync(join(outDir, `${base}.json`), JSON.stringify({ms, translated: result.translated, kept: result.kept, message: result.message,
     readings: result.debug, skipped: result.skipped, modelMs: calls.reduce((a, c) => a + c.ms, 0), calls}, null, 2));
   console.log(`${name}: ${(ms / 1000).toFixed(1)} s, ${calls.length} model calls, ${result.translated} lettered, ${result.kept} kept${result.message ? ' — ' + result.message : ''}`);
-  summary.push({name, ms, calls: calls.length, translated: result.translated, kept: result.kept});
+  summary.push({name, ms, calls: calls.length, translated: result.translated, kept: result.kept, finished: Date.now() - runStarted});
   // Gentle mode, for a PC that is in use: the model leaves video memory after every page, and the
   // next page waits.
   if (unload) await fetch('http://127.0.0.1:11434/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({model, keep_alive: 0})}).catch(() => {});
   if (pause && name !== pages[pages.length - 1]) await new Promise(resolve => setTimeout(resolve, pause * 1000));
 }
+// The first page is the one on screen: alone, as in the extension; the rest are read ahead.
+if (pages.length) await translatePage(pages[nextIndex++]);
+await Promise.all(Array.from({length: Math.max(1, concurrency)}, worker));
+const wall = Date.now() - runStarted;
+console.log(`${pages.length} pages in ${(wall / 1000).toFixed(1)} s (${(pages.length / wall * 60000).toFixed(1)} per minute), ` +
+  `first page done after ${(summary.find(p => p.name === pages[0]).finished / 1000).toFixed(1)} s, ${concurrency} at a time.`);
 writeFileSync(join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
 await browser.close();
