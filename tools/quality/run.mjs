@@ -4,6 +4,7 @@
 //   tools/quality/out/<name>-side.png     original | translated, side by side
 //   tools/quality/out/<name>.json         what was read, translated and where it was lettered
 //     node build.mjs && node tools/quality/run.mjs [name-filter] [--source=Japanese] [--model=qwen3-vl:4b-instruct]
+//       [--out=out] [--unload] [--pause=30]   unload the model after each page, wait 30 s between pages
 import {chromium} from 'playwright-core';
 import {readFileSync, writeFileSync, mkdirSync, readdirSync} from 'node:fs';
 import {join, dirname, extname} from 'node:path';
@@ -15,6 +16,7 @@ const option = (name, fallback) => args.find(a => a.startsWith(`--${name}=`))?.s
 const filter = args.find(a => !a.startsWith('--')) || '';
 const model = option('model', 'qwen3-vl:4b-instruct'), source = option('source', 'Auto-detect');
 const outDir = join(here, option('out', 'out'));
+const unload = args.includes('--unload'), pause = Number(option('pause', 0));
 mkdirSync(outDir, {recursive: true});
 
 // The built userscript, made to hand its internals to the page instead of starting its UI.
@@ -95,6 +97,11 @@ for (const name of pages) {
     readings: result.debug, skipped: result.skipped, modelMs: calls.reduce((a, c) => a + c.ms, 0), calls}, null, 2));
   console.log(`${name}: ${(ms / 1000).toFixed(1)} s, ${calls.length} model calls, ${result.translated} lettered, ${result.kept} kept${result.message ? ' — ' + result.message : ''}`);
   summary.push({name, ms, calls: calls.length, translated: result.translated, kept: result.kept});
+  // Gentle mode, for a PC that is in use: the model leaves video memory after every page, and the
+  // next page waits.
+  if (unload) await fetch('http://127.0.0.1:11434/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({model, keep_alive: 0})}).catch(() => {});
+  if (pause && name !== pages[pages.length - 1]) await new Promise(resolve => setTimeout(resolve, pause * 1000));
 }
 writeFileSync(join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
 await browser.close();
