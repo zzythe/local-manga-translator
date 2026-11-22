@@ -6,41 +6,26 @@ Use the same text on the Chrome Web Store, Microsoft Edge Add-ons and Firefox Ad
 Local Manga Translator
 
 ## Short description (Chrome: 132 characters max)
-Translate manga, manhwa and manhua right on the page with AI that runs on your own PC. Private, no account, free to start.
+Translates manga, manhwa and manhua in place, using a vision model running on your own computer. Open source.
 
 ## Category
-Chrome: **Tools** (Productivity). Edge: **Productivity**. Firefox: **Language Support**.
+Chrome: **Tools**. Edge: **Productivity**. Firefox: **Language Support**.
 
 ## Description
 
-Read raw manga, manhwa and manhua in your language, right on the page you're on.
+Local Manga Translator translates manga, manhwa and manhua in place. The text is read and translated by a vision model running in Ollama on your own computer, so pages never leave it.
 
-Local Manga Translator finds the text in speech bubbles, captions and sound effects, cleans it out of the art, and letters the translation back in to fit each bubble. Pages ahead of you are translated while you read, so you can just keep scrolling.
+Open a chapter and click the toolbar button, right-click the page, or press Alt+Shift+T. Pages are translated as you scroll, a few ahead of where you are. The original text is removed from each bubble and the translation is set to fit. Click the mark on a page to compare it with the original.
 
-★ PRIVATE: the AI runs on your own computer
-Pages are read by a vision model running in Ollama, a free program on your PC. Nothing you read is uploaded, there's no account, and there are no analytics.
+It works on long strips, page-by-page readers and galleries, and translates captions and sound effects as well as speech bubbles. Source languages: Japanese, Korean, Chinese, English, Spanish, Portuguese. Target languages: English and 14 others.
 
-★ WORKS ON THE READERS YOU ALREADY USE
-Long webtoon strips, page-by-page readers and image galleries. Click the toolbar button, right-click → "Translate this page", or press Alt+Shift+T. Turn on "Always translate on this site" for your favourites.
+On first install a setup page walks you through installing Ollama and downloading a model (1.9 to 6.2 GB).
 
-★ LETTERED TO FIT
-The original lettering is removed and the translation follows the shape of the bubble. Click the mark on any page, or the ⇄ button, to compare with the original.
+30 new pages a day are free. Pro removes the limit for a one-time $6.99.
 
-★ MANY LANGUAGES
-From Japanese, Korean, Chinese, English, Spanish or Portuguese into English, Spanish, Portuguese, French, German, Italian, Indonesian, Vietnamese, Russian, Korean, Japanese and Chinese.
+Requirements: Windows 10 or later, macOS or Linux. A GPU with 6 GB of VRAM or more is recommended; on the CPU a page can take a minute.
 
-★ GUIDED SETUP
-After installing, a setup page walks you through installing Ollama and downloading a model sized for your computer (1.9 to 6.2 GB, one time), with progress shown as it downloads.
-
-FREE AND PRO
-• Free: 30 new pages every day, with every feature. Pages you've already translated show again for free.
-• Pro: unlimited pages for a one-time payment of $6.99. The translation still runs on your PC.
-
-REQUIREMENTS
-Windows 10/11, macOS or Linux, with 4 to 8 GB of free disk space. A graphics card with 6 GB or more of memory translates a page in seconds; without one it works, but slowly.
-
-Open source: https://github.com/zzythe/local-manga-translator
-Support: https://github.com/zzythe/local-manga-translator/issues
+Source code and bug reports: https://github.com/zzythe/local-manga-translator
 
 ## Single purpose (Chrome privacy tab)
 Translates the text in comic images on web pages the user chooses, using an AI model running locally on the user's computer.

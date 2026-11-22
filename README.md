@@ -1,35 +1,33 @@
+<p align="center"><img src="docs/img/icon.png" width="128" alt=""></p>
+
 # Local Manga Translator
 
-Translate manga, manhwa and manhua **right on the page**, with AI that runs on your own computer. Nothing you read is uploaded, there's no account, and it keeps working on sites and pages that online translators refuse.
+Local Manga Translator is an open source browser extension that translates manga, manhwa and manhua in place. The text is read and translated by a vision model running in [Ollama](https://ollama.com) on your own machine, so pages never leave your computer.
 
-**Open source:** the code is public, so you can see exactly what the extension does.
+## Usage
 
-**Get it:** Chrome Web Store · Microsoft Edge Add-ons · Firefox Add-ons *(links once the listings are live)* · [Website](https://zzythe.github.io/local-manga-translator/)
+Open a chapter and click the toolbar button, right-click the page, or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>. Pages are translated as you scroll, a few ahead of where you are. Click the mark on a page to switch between the original and the translation.
 
-## How it works
+On first install a setup page walks you through installing Ollama and downloading a model.
 
-1. Open a comic in any web reader and click the translator's toolbar button (or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>).
-2. The extension downloads the page image the same way your browser does and finds the lettering in speech bubbles, captions and sound effects.
-3. A vision model running in [Ollama](https://ollama.com) on your PC reads the text. The lines are translated with the previous pages as context.
-4. The original text is cleaned from the bubbles and the translation is lettered to fit, then the page image is swapped in place. Pages ahead of you are translated while you read.
+## System requirements
 
-The setup page that opens after installing walks you through installing Ollama and downloading a model (1.9 to 6.2 GB, one time).
+- Chrome, Edge, Brave, Vivaldi, Opera, or Firefox 128 or later.
+- Windows 10 or later, macOS, or Linux, with 2 to 7 GB of disk space for the model.
+- A GPU with 6 GB of VRAM or more is recommended. It runs on the CPU too, but a page can take a minute.
 
-## Free and Pro
+## Pricing
 
-The free plan translates 30 new pages a day. Pro removes the limit with a one-time payment, handled by [ExtensionPay](https://extensionpay.com).
+30 new pages a day are free. Pro removes the limit for a one-time $6.99.
 
 ## Privacy
 
-Everything runs locally. The extension connects only to the comic site you're reading (to load its images), to Ollama on your own computer, and to ExtensionPay if you buy Pro. It collects no analytics. See the [privacy policy](https://zzythe.github.io/local-manga-translator/privacy.html).
+The extension only talks to the site you're reading (to fetch page images), to Ollama on localhost, and to ExtensionPay if you buy Pro. See the [privacy policy](https://zzythe.github.io/local-manga-translator/privacy.html).
 
-## Inside the code
+## Bug reports
 
-| Path | What it is |
-|---|---|
-| `src/translator.src.js` | The translator: text detection, cleaning, lettering, Ollama prompts and the on-page control |
-| `extension/` | Extension shell: background worker, setup page, sample page, icons |
-| `build.mjs` | Builds the extension for Chromium browsers and Firefox |
-| `tools/` | Icon rendering, end-to-end tests and quality checks |
-| `docs/` | The website (GitHub Pages) |
-| `store/` | Store listing text and images |
+Open an [issue](https://github.com/zzythe/local-manga-translator/issues). Include the site, your browser, and the model you use.
+
+## License
+
+Source available under the [PolyForm Strict License 1.0.0](LICENSE.md). Sample pages are from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0). Other third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
