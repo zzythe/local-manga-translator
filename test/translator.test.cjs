@@ -369,13 +369,25 @@ test('the blurred dots of an ellipsis after an SFX are erased, a sparkle of the 
   const img = page(200, 100, [50, 35, 45]);
   glyphs(img, 60, 40, 5, 1, [200, 225, 235]);
   // Dots part-way from the background to the letters' colour, as a blurred dot is.
-  const dots = [[143, 50], [150, 50], [157, 50]], sparkle = [100, 32];
+  const dots = [[139, 50], [146, 50], [153, 50]], sparkle = [100, 32];
   for (const [cx, cy] of dots) for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) set(img, cx + x, cy + y, [155, 168, 178]);
   for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) set(img, sparkle[0] + x, sparkle[1] + y, [230, 210, 90]);
   const plan = t.planLooseErase(img, {x: 58, y: 38, width: 104, height: 20});
   assert.ok(plan);
   for (const [cx, cy] of dots) assert.ok(plan.mask[cy * 200 + cx], `dot at ${cx},${cy} erased`);
   assert.ok(!plan.mask[sparkle[1] * 200 + sparkle[0]], 'sparkle kept');
+});
+
+test('a splash in the lettering colour further along the line is not erased with it', () => {
+  const img = page(240, 100, [40, 90, 80]);
+  glyphs(img, 110, 40, 5, 1, [221, 170, 61]);
+  // A drop of the same orange just left of the text box, on the line of the text.
+  const drops = [[97, 47]];
+  for (const [cx, cy] of drops) ellipse(img, cx, cy, 3, 3, [221, 170, 61]);
+  const plan = t.planLooseErase(img, {x: 108, y: 38, width: 82, height: 20});
+  assert.ok(plan);
+  for (const [cx, cy] of drops) assert.ok(!plan.mask[cy * 240 + cx], `drop at ${cx},${cy} kept`);
+  assert.ok(plan.mask[48 * 240 + 111], 'lettering cleaned');
 });
 
 test('an artwork outline touching the first letter is cut off where it leaves the line of text', () => {

@@ -1239,27 +1239,36 @@
     // Off the text box, only marks in the lettering's own colour: a glow or highlight of the art
     // beside it (faint, or near the colour but not it) stays.
     const inBox = p => p.x0 <= box.x + box.width && p.x1 >= box.x && p.y0 <= box.y + box.height && p.y1 >= box.y;
-    const belongs = p => {
+    const belongs = (p, touching = false) => {
       if (p.core > 0 || !inkOf) return true;
       const m = meanOf(p);
       if (!m) return inBox(p);
       // Small marks (dots, a dakuten) blur into the background and drift further from its colour.
       const small = glyph && Math.max(p.x1 - p.x0, p.y1 - p.y0) + 1 <= glyph * 0.5;
-      if (Math.abs(m[0] - inkOf[0]) + Math.abs(m[1] - inkOf[1]) + Math.abs(m[2] - inkOf[2]) <= (!inBox(p) ? 70 : small ? 110 : 80)) return true;
-      if (!small || !inBox(p)) return false;
-      // A blurred dot (the dots of an ellipsis) is a mix of the lettering and the background behind
-      // it: its colour lies on the line between the two. Sparkles of the art are a colour of their own.
+      // Near the lettering's colour, and of the same hue: a splash of yellow-green beside orange
+      // lettering is close in brightness but not in hue.
+      const hue = c => [c[0] - c[1], (c[0] + c[1]) / 2 - c[2]];
+      const [mh, ih] = [hue(m), hue(inkOf)];
+      if (Math.abs(m[0] - inkOf[0]) + Math.abs(m[1] - inkOf[1]) + Math.abs(m[2] - inkOf[2]) <= (!inBox(p) ? 70 : small ? 110 : 80) &&
+        Math.max(Math.abs(mh[0] - ih[0]), Math.abs(mh[1] - ih[1])) <= 30) return true;
+      if (!small || !inBox(p) || !touching) return false;
+      // A blurred dot next to the letters (the dots of an ellipsis) is a mix of the lettering and the
+      // background behind it: its colour lies on the line between the two. Sparkles of the art are
+      // a colour of their own.
       const behind = [0, 0, 0];
       for (const i of p.pixels) for (let k = 0; k < 3; k++) behind[k] += gradient ? ref[i * 4 + k] : [base.r, base.g, base.b][k];
       const bg = behind.map(v => v / p.pixels.length), d = inkOf.map((v, k) => v - bg[k]), v = m.map((c, k) => c - bg[k]);
       const t = (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / Math.max(1, d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
       return t >= 0.5 && t <= 1.15 && Math.hypot(v[0] - t * d[0], v[1] - t * d[1], v[2] - t * d[2]) <= 26;
     };
-    const accepted = parts.filter(p => p.inside && belongs(p));
+    // Start from marks at the text box; marks further along the line join only through others
+    // (below), so a splash of the same colour beside the lettering is not taken with it.
+    const nearBox = p => p.x0 <= box.x + box.width + gap && p.x1 >= box.x - gap && p.y0 <= box.y + box.height + gap && p.y1 >= box.y - gap;
+    const accepted = parts.filter(p => p.inside && nearBox(p) && belongs(p));
     for (let grew = true; grew;) {
       grew = false;
       for (const p of parts) {
-        if (accepted.includes(p) || !belongs(p)) continue;
+        if (accepted.includes(p) || !belongs(p, true)) continue;
         if (accepted.some(a => p.x0 <= a.x1 + gap && a.x0 <= p.x1 + gap && p.y0 <= a.y1 + gap && a.y0 <= p.y1 + gap)) { accepted.push(p); grew = true; }
       }
     }
