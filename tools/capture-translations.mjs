@@ -1,9 +1,10 @@
-// Translates the bundled sample pages in Edge and saves the results to store/raw/.
+// Translates the bundled sample pages in Edge and saves the results to store/raw/, with the bundled fonts.
 import {chromium} from 'playwright-core';
 import {mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-const ext = join(process.cwd(), 'dist/chrome');
+import {bundledFontsBuild} from './bundled-fonts.mjs';
+const ext = bundledFontsBuild(process.cwd());
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'mlt-')), {
   channel: 'msedge', headless: false, viewport: {width: 1280, height: 900},
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`]
