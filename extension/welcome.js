@@ -9,7 +9,7 @@ const gb = bytes => (bytes / 1e9).toFixed(bytes >= 1e10 ? 0 : 1) + ' GB';
 const setState = (step, state, pill) => { $(step).dataset.state = state; if (pill != null) $(step).querySelector('.pill') && ($(step).querySelector('.pill').textContent = pill); };
 
 $('version').textContent = 'Version ' + chrome.runtime.getManifest().version;
-document.querySelectorAll('.limit-text').forEach(n => { n.textContent = CONFIG.freePagesPerDay; });
+document.querySelectorAll('.limit-text').forEach(n => { n.textContent = CONFIG.freePagesPerHour; });
 $('price').textContent = CONFIG.proPrice;
 
 /* ---------- Step 1: the download that fits this computer ---------- */

@@ -87,7 +87,7 @@ try {
     const states = await welcome.evaluate(() => ['step-engine', 'step-model', 'step-try'].map(id => document.getElementById(id).dataset.state));
     check('setup page detects Ollama and the model', states[0] === 'done' && states[1] === 'done', states.join(','));
     const meter = await welcome.locator('.meter-line').innerText();
-    check('setup page shows the free meter', /50 of 50 free pages left today/.test(meter), meter);
+    check('setup page shows the free meter', /60 of 60 free pages left this hour/.test(meter), meter);
     await welcome.screenshot({path: join(out, 'welcome.png'), fullPage: true});
   }
 
@@ -275,11 +275,11 @@ try {
     file?.suggestedFilename() || 'no download');
   await paged.close();
 
-  // 5. At the daily limit, new pages wait and the control says why.
+  // 5. At the hourly limit, new pages wait and the control says why.
   await sw.evaluate(async () => {
     const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const {usage} = await chrome.storage.local.get('usage');
-    await chrome.storage.local.set({usage: {...usage, day, count: CONFIG.freePagesPerDay}});
+    await chrome.storage.local.set({usage: {...usage, day, count: CONFIG.freePagesPerHour, start: Date.now()}});
   });
   const limited = await ctx.newPage();
   await limited.goto('http://127.0.0.1:8765/chapter-2');

@@ -143,7 +143,7 @@ function handlePull(port) {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Free plan: a daily page allowance. Pro (paid once through ExtensionPay) has no limit.
+ * Free plan: an hourly page allowance. Pro (paid once through ExtensionPay) has no limit.
  * ---------------------------------------------------------------------------------------- */
 
 const today = () => {
@@ -165,15 +165,17 @@ async function proStatus(force) {
   }
 }
 
-// Today's usage: the page count, and which pages were counted (salted hashes of their image
-// addresses, so a page shown again is free). A new day starts with nothing kept from the last,
-// and a new salt.
+// Usage: the pages counted in this hour (the hour starts with its first counted page), and which
+// pages were counted today (salted hashes of their image addresses, so a page shown again the
+// same day is free). A new day starts with nothing kept from the last, and a new salt.
+const HOUR = 3600e3;
 async function usageToday() {
   const {usage} = await chrome.storage.local.get('usage');
-  if (usage?.day === today() && typeof usage.salt === 'string' && Array.isArray(usage.seen)) return usage;
-  const salt = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
-  // (A count from earlier today, kept by an older version without the salt, stays.)
-  const fresh = {day: today(), count: usage?.day === today() ? usage.count || 0 : 0, seen: [], salt};
+  const sameDay = usage?.day === today() && typeof usage.salt === 'string' && Array.isArray(usage.seen);
+  const sameHour = typeof usage?.start === 'number' && Date.now() - usage.start < HOUR && Date.now() >= usage.start;
+  if (sameDay && (sameHour || (!usage.start && !usage.count))) return usage;
+  const salt = sameDay ? usage.salt : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const fresh = {day: today(), count: sameHour ? usage.count || 0 : 0, start: sameHour ? usage.start : 0, seen: sameDay ? usage.seen : [], salt};
   await chrome.storage.local.set({usage: fresh});
   return fresh;
 }
@@ -182,14 +184,14 @@ async function pageId(usage, url) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(usage.salt + url.slice(0, 4000)));
   return [...new Uint8Array(digest).slice(0, 12)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
-// Yesterday's list is cleared even on days nothing is translated.
+// The hour's count and yesterday's list are cleared even when nothing is translated.
 chrome.runtime.onStartup.addListener(() => { usageToday(); });
-chrome.alarms?.create('usage-day', {periodInMinutes: 30});
+chrome.alarms?.create('usage-day', {periodInMinutes: 5});
 chrome.alarms?.onAlarm.addListener(alarm => { if (alarm.name === 'usage-day') usageToday(); });
 
 async function plan() {
   const usage = await usageToday();
-  return {pro: await proStatus(false), used: usage.count, limit: CONFIG.freePagesPerDay};
+  return {pro: await proStatus(false), used: usage.count, limit: CONFIG.freePagesPerHour, resetAt: usage.start ? usage.start + HOUR : 0};
 }
 
 // What one translated image costs: a page, or part of one for an image of a long strip. One very
@@ -201,12 +203,12 @@ function pageCost({strip, aspect} = {}) {
 }
 
 // A page counts once it is shown. Shown again the same day (after a reload, a changed setting, or
-// in another tab) it is free.
+// in another tab) it is free. The first page counted starts the hour.
 async function recordPage(image) {
   const usage = await usageToday(), id = await pageId(usage, image?.url);
   if (id && usage.seen.includes(id)) return plan();
   const count = Math.round((usage.count + pageCost(image)) * 100) / 100;
-  await chrome.storage.local.set({usage: {...usage, count, seen: id ? [...usage.seen, id].slice(-2000) : usage.seen},
+  await chrome.storage.local.set({usage: {...usage, count, start: usage.start || Date.now(), seen: id ? [...usage.seen, id].slice(-2000) : usage.seen},
     lifetime: ((await chrome.storage.local.get('lifetime')).lifetime || 0) + 1});
   return plan();
 }

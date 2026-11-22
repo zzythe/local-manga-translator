@@ -21,7 +21,7 @@ It works on long strips, page-by-page readers and galleries, and translates capt
 
 On first install a setup page walks you through installing Ollama and downloading a model (1.9 to 6.2 GB).
 
-50 new pages a day are free. A page counts when it first appears on your screen, not when it's translated ahead, and images from long strips count as half a page. Pro removes the limit for a one-time $6.99.
+60 new pages an hour are free. A page counts when it first appears on your screen, not when it's translated ahead, and images from long strips count as half a page. Pro removes the limit for a one-time $4.99.
 
 Requirements: Windows 10 or later, macOS or Linux. A GPU with 6 GB of VRAM or more is recommended; on the CPU a page can take a minute.
 
@@ -38,7 +38,7 @@ Translates the text in comic images on web pages the user chooses, using an AI m
 |---|---|
 | Host permission `<all_urls>` | Comic readers load page images from many different image servers. The extension downloads the image the user asked it to translate (with the page as referrer, which many sites require) and replaces it on the page with the translated version. On readers with one page per address, it also downloads the next page of the same site to translate its image ahead. A small content script checks whether the user turned the translator on for the current site; it does nothing otherwise. |
 | `scripting` | Loads the translator into the current tab when the user clicks the toolbar button, uses the context menu or presses the shortcut. |
-| `storage` | Saves the user's language and model settings, sites set to translate automatically, names the user entered for each site, the free plan's daily page count, and Pro status. Session storage (memory only) holds the sites the translator is turned on for until the browser closes. |
+| `storage` | Saves the user's language and model settings, sites set to translate automatically, names the user entered for each site, the free plan's hourly page count, and Pro status. Session storage (memory only) holds the sites the translator is turned on for until the browser closes. |
 | `alarms` | Clears the free plan's list of pages counted the day before, also on days nothing is translated. |
 | `contextMenus` | Adds "Translate this page" to the right-click menu. |
 | `declarativeNetRequestWithHostAccess` | Sets the referrer on the extension's own image downloads (many comic sites refuse images without it) and lets the extension's background requests reach the user's local Ollama server, which otherwise rejects browser extensions. The rules apply only to requests made by the extension itself, never to web pages. |

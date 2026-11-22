@@ -18,7 +18,7 @@ On first install a setup page walks you through installing Ollama and downloadin
 
 ## Pricing
 
-50 new pages a day are free. A page counts when it first appears on your screen, and images from long strips count as half a page. Pro removes the limit for a one-time $6.99.
+60 new pages an hour are free. A page counts when it first appears on your screen, and images from long strips count as half a page. Pro removes the limit for a one-time $4.99.
 
 ## Privacy
 

@@ -3995,7 +3995,7 @@
     .action:hover { filter: brightness(1.08); }
     .action[hidden] { display: none; }
 
-    /* Free plan meter: pages left today. */
+    /* Free plan meter: pages left this hour. */
     .meter { display: flex; align-items: center; gap: 10px; padding: 0 16px 9px; font: 500 12px/1.3 system-ui, "Segoe UI", sans-serif; color: var(--muted); }
     .meter[hidden] { display: none; }
     .meter .gauge { flex: 1; min-width: 60px; height: 6px; border-radius: 3px; background: var(--wash); overflow: hidden; }
@@ -4216,6 +4216,11 @@
     /* ---------- Free plan meter (extension) ---------- */
 
     let plan = null, blocked = false;
+    // When this hour's free pages come back, as "in 23 min".
+    const comesBack = () => {
+      const min = Math.max(1, Math.ceil(((plan?.resetAt || 0) - Date.now()) / 60000));
+      return plan?.resetAt ? `in ${min} min` : 'soon';
+    };
     function renderPlan() {
       if (!EXTENSION || !plan) return;
       const free = !plan.pro;
@@ -4223,11 +4228,11 @@
       $('plan').hidden = false;
       if (free) {
         const left = Math.max(0, Math.round((plan.limit - plan.used) * 10) / 10);
-        $('meter-text').innerHTML = `<b>${left}</b> of ${plan.limit} free pages left today`;
+        $('meter-text').innerHTML = `<b>${left}</b> of ${plan.limit} free pages left this hour`;
         $('meter-fill').style.width = `${Math.round(100 * left / plan.limit)}%`;
         $('meter').classList.toggle('low', left <= Math.ceil(plan.limit / 6));
         $('pro').hidden = false;
-        $('plan-text').textContent = `Free plan: ${plan.limit} pages a day`;
+        $('plan-text').textContent = `Free plan: ${plan.limit} pages an hour`;
         // The meter above already has the buy button.
         $('plan-button').hidden = true;
       } else {
@@ -4252,10 +4257,10 @@
       for (const page of pages.values()) if (page.status === 'limited') page.status = 'queued';
       pump();
     };
-    // Buying Pro, or the date changing, updates the plan in extension storage.
+    // Buying Pro, or a new hour, updates the plan in extension storage.
     const onPlanChange = (changes, area) => { if (area === 'local' && (changes.usage || changes.pro)) refreshPlan().then(unblock); };
     if (EXTENSION) { chrome.storage.onChanged.addListener(onPlanChange); refreshPlan(); }
-    const dayTimer = EXTENSION ? setInterval(() => { if (blocked) refreshPlan().then(unblock); }, 60000) : 0;
+    const dayTimer = EXTENSION ? setInterval(() => { if (blocked) refreshPlan().then(unblock).then(idleStatus); }, 60000) : 0;
 
     /* ---------- Ollama ---------- */
 
@@ -4418,7 +4423,7 @@
     const onVisible = () => { countSeen(); pump(); };
     document.addEventListener('visibilitychange', onVisible);
 
-    // Free plan: pages translated but not seen yet are held against what is left today, so
+    // Free plan: pages translated but not seen yet are held against what is left this hour, so
     // reading ahead never goes past it; and free reading ahead is two pages (one for a reader
     // with a page per address). Pro reads ahead as far as the nearby pages go.
     const FREE_AHEAD = 2;
@@ -4797,7 +4802,7 @@
     function idleStatus() {
       if (stopped || working.size || !ready) return;
       const failed = [...pages.values()].filter(p => p.status === 'failed');
-      if (blocked) say('Today’s free pages are used up', 'They come back at midnight. Pro translates without a limit.');
+      if (blocked) say('This hour’s free pages are used up', `More ${comesBack()}. Pro translates without a limit.`);
       else if (paused) say('Paused', `${done} page${done === 1 ? '' : 's'} translated`);
       else if (failed.length) say(`${done} page${done === 1 ? '' : 's'} translated`, `${failed.length} failed: ${failed[0].error} Click the red mark to retry.`);
       else if (done) say(`${done} page${done === 1 ? '' : 's'} translated`);
@@ -5063,8 +5068,8 @@
       {family: 'MangaSFXCrisp', data: '__SFX_CRISP_DATA__', weight: '400'},
       {family: 'MangaSFXHeavy', data: '__SFX_HEAVY_DATA__', weight: '400'}];
   }
-})();
   // The control's own title and buttons: Comic Neue Bold.
   function uiFont() {
     return {data: '__UI_FONT_DATA__', weight: '700'};
   }
+})();
