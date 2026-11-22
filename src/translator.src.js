@@ -4146,7 +4146,11 @@
     if (settings.outdated) save();
     remember(true);
     forgetOldStore();
-    const pipeline = createPipeline(browserEnv);
+    // The helper models are waited for where the page needs them (the first page after the browser
+    // starts finds its panels and prepares its crops while they load).
+    const pipeline = createPipeline({...browserEnv,
+      detectText: async crop => { await helpersReady(); return browserEnv.detectText(crop); },
+      inpaint: async (img, mask) => { await helpersReady(); return browserEnv.inpaint(img, mask); }});
     let fontReady = loadLetteringFont(settings.font).catch(() => []);
     const pages = new Map();  // img -> {source, status, url, nodes, showing, error, mark}
     let paused = false, stopped = false, showOriginals = false, ready = false, done = 0;
@@ -4403,6 +4407,10 @@
         if (page || !eligible(img)) continue;
         pages.set(img, {source: sourceOf(img), status: 'queued'});
         observer.observe(img);
+        // Near the screen now: started at once. The observer's first answer comes with the next
+        // rendered frame, which on the first page after the browser starts can take a second.
+        const r = img.getBoundingClientRect();
+        if (r.bottom > -1.5 * innerHeight && r.top < 2.5 * innerHeight && r.right > 0 && r.left < innerWidth) nearby.add(img);
       }
       progress(); pump();
     }
@@ -4546,8 +4554,7 @@
     async function translateImage(source, img, isCurrent, onPreview) {
       const download = fetchBlob(source);
       download.catch(() => {});
-      await helpersReady();
-      if (!isCurrent()) throw abortError();
+      const helpers = helpersReady();
       if (img) say('Translating', 'Downloading the page…');
       const blob = await download;
       if (blob.size > MAX_BYTES) throw new Error('The image is larger than 30 MB.');
@@ -4559,6 +4566,8 @@
         let last = '';
         const report = !img ? () => {} : text => { last = text; say('Translating', warming && text === FINDING ? 'Loading the model into memory…' : text); };
         if (img) warming?.then(() => { if (last === FINDING && isCurrent()) say('Translating', FINDING); });
+        // The status line said how the helper models were coming on: the page's own progress again.
+        if (img) helpers.then(() => { if (last && isCurrent()) report(last); });
         const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
           report, stopped: () => !isCurrent(), preview: onPreview && (piece => onPreview(piece, width, height))});
         if (!isCurrent()) throw abortError();
