@@ -1108,22 +1108,29 @@
     // The background is the most common colour just around the text box. A few lines crossing
     // it (hair, speed lines) are fine; artwork with no dominant colour is not.
     const near = Math.round(4 + 0.12 * Math.min(box.width, box.height));
-    const edge = [...ring(w, h, 2, {x: box.x - near, y: box.y - near, width: box.width + 2 * near, height: box.height + 2 * near})];
-    const histogram = new Uint32Array(256);
-    for (const i of edge) histogram[lumOf(data, i * 4)]++;
-    let mode = 0;
-    for (let v = 1; v < 256; v++) if (histogram[v] > histogram[mode]) mode = v;
-    const plain = edge.filter(i => Math.abs(lumOf(data, i * 4) - mode) <= 14);
-    // Or smooth: gradients and translucent bubbles change slowly from pixel to pixel.
-    const smooth = edge.filter(i => {
-      const x = i % w, y = (i / w) | 0, l = lumOf(data, i * 4);
-      return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => {
-        const xx = x + dx, yy = y + dy;
-        return xx < 0 || yy < 0 || xx >= w || yy >= h || Math.abs(lumOf(data, (yy * w + xx) * 4) - l) <= 10;
+    const ringStats = at => {
+      const edge = [...ring(w, h, 2, {x: box.x - at, y: box.y - at, width: box.width + 2 * at, height: box.height + 2 * at})];
+      const histogram = new Uint32Array(256);
+      for (const i of edge) histogram[lumOf(data, i * 4)]++;
+      let mode = 0;
+      for (let v = 1; v < 256; v++) if (histogram[v] > histogram[mode]) mode = v;
+      const plain = edge.filter(i => Math.abs(lumOf(data, i * 4) - mode) <= 14);
+      // Or smooth: gradients and translucent bubbles change slowly from pixel to pixel.
+      const smooth = edge.filter(i => {
+        const x = i % w, y = (i / w) | 0, l = lumOf(data, i * 4);
+        return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => {
+          const xx = x + dx, yy = y + dy;
+          return xx < 0 || yy < 0 || xx >= w || yy >= h || Math.abs(lumOf(data, (yy * w + xx) * 4) - l) <= 10;
+        });
       });
-    });
+      return {edge, plain, smooth, ok: plain.length >= edge.length * 0.6 || smooth.length >= edge.length * 0.7};
+    };
+    // A model box a few pixels off puts the ring through the lettering itself: look further out.
+    let sample = ringStats(near);
+    if (!sample.ok) { const further = ringStats(near * 2); if (further.ok) sample = further; }
+    const {edge, plain, smooth} = sample;
     // Busy artwork all round: find the lettering by its colour instead.
-    if (plain.length < edge.length * 0.6 && smooth.length < edge.length * 0.7) return planOutlinedErase(img, box, why) || planColourErase(img, box, why);
+    if (!sample.ok) return planOutlinedErase(img, box, why) || planColourErase(img, box, why);
     const gradient = plain.length < edge.length * 0.6;
     const base = statsOf(data, gradient ? smooth : plain);
     // On a gradient or a glow there is no one background colour: compare each pixel with the
@@ -1816,7 +1823,9 @@
   const OLLAMA = 'http://127.0.0.1:11434';
   const DEFAULT_MODEL = 'qwen3-vl:4b-instruct';
   // Ollama reloads the model whenever num_ctx changes, so every call uses the same value.
-  const OLLAMA_OPTIONS = {temperature: 0, num_predict: 4096, num_ctx: 16384};
+  // 8192 tokens is twice what the largest call needs (about 3000), and holds about 1 GB less in
+  // video memory than 16384: on a 6 GB card that is the difference between all on the GPU or not.
+  const OLLAMA_OPTIONS = {temperature: 0, num_predict: 4096, num_ctx: 8192};
   const VISION_NAME = /vl|vision|llava|gemma3|minicpm-v|moondream|pixtral|mistral-small3\.[12]|llama4|granite3\.2-vision/i;
 
   function chatPayload(model, job) {
@@ -1946,7 +1955,7 @@
    * 5. Translation pipeline (shared by the browser and the test harness)
    * ==================================================================================== */
 
-  const MAX_WORK_WIDTH = 1600;
+  const MAX_WORK_WIDTH = 1600, DETECT_WIDTH = 1024;
   // Lettering fonts: dialogue (CC Wild Words when installed, else the bundled Comic Neue Bold) and
   // sound effects in a brush hand matched to the original's strokes (crisp: MLT Brush Crisp, a
   // subset of Kaushan Script; heavy: Knewave). Scripts they lack fall back to system fonts.
@@ -2011,8 +2020,13 @@
       const detections = [], blocks = [];
       for (const tile of strips) {
         check();
-        const crop = env.makeCanvas(W, tile.height);
-        crop.getContext('2d').drawImage(work, 0, tile.y, W, tile.height, 0, 0, W, tile.height);
+        // The model only needs to find the lettering here (the crops are read at full size later),
+        // and a smaller image is read about a fifth faster with no fewer finds.
+        const shrink = Math.min(1, DETECT_WIDTH / W);
+        const crop = env.makeCanvas(Math.round(W * shrink), Math.round(tile.height * shrink));
+        const cctx = crop.getContext('2d');
+        cctx.imageSmoothingQuality = 'high';
+        cctx.drawImage(work, 0, tile.y, W, tile.height, 0, 0, crop.width, crop.height);
         const encoded = await env.encode(crop, 'image/jpeg', 0.9);
         detections.push(job.ask(detectionJob(s, encoded)).then(data => regionsFrom(data, tile), error => error));
         const pixels = wctx.getImageData(0, tile.y, W, tile.height);
