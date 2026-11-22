@@ -40,7 +40,8 @@ try {
   await welcome.waitForTimeout(500);
   await shot(welcome, 'shot-welcome.png');
 
-  // The reader, translated.
+  // The reader, translated. The settings panel will open with More open, to show every setting.
+  await sw.evaluate(() => chrome.storage.local.get('settings').then(({settings}) => chrome.storage.local.set({settings: {...settings, more: true}})));
   const reader = await ctx.newPage();
   await reader.goto('http://comics.example:8770/');
   await reader.bringToFront();

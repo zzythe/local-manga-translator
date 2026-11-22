@@ -19,27 +19,28 @@ text). Slanted sound effects are lettered along the original's axis and checked 
 
 ## Which run each page's output comes from
 
-All pages: one full run on 2026-11-22 (`run.mjs`, one page at a time), translator code as of the
-commit that adds this line, with the extension's helper models (`models/`, see the end). 72.3 s
-for the 11 pages with nothing cached in Ollama (70.9 s before); with Ollama's prompt cache warm,
-45.1 s (44.8 s before). The lettering changes cost no time: 12.3 s of the warm run is outside the
-model, 13.8 s before.
+All pages: one full run on 2026-11-22 (`run.mjs --unload --pause=30`, one page at a time, the
+model loaded again for every page), translator code as of the commit that adds this line, with
+the extension's helper models (`models/`, see the end). The translation call now streams: each
+bubble is lettered as soon as its line is complete, and the finished page is made as before.
 
-Reading ahead (`--concurrency=2`: the first page alone, then two at a time): 38.2–38.6 s for the
-11 pages, 17.1–17.3 pages a minute against 13.9–14.4 one at a time; the first page is done after
-5.1–5.5 s either way. Three at a time is no faster (17.3–17.4 a minute). Ollama runs one request
-at a time for qwen3-vl ("model architecture does not currently support parallel requests",
-whatever OLLAMA_NUM_PARALLEL says; a copy of the model under another name shares the same runner),
+With the model kept loaded, 11 pages one at a time: streaming, the first bubble is ready after
+3.2 s on average and the page after 4.2 s (46.7–47.0 s for all 11); without streaming
+(`--no-stream`) the page appears whole after 4.3 s (47.1 s for all 11).
+
+Reading ahead (`--concurrency=2`: the first page alone, then two at a time), measured before
+streaming: 38.2–38.6 s for the 11 pages, 17.1–17.3 pages a minute against 13.9–14.4 one at a
+time. Three at a time is no faster. Ollama runs one request at a time for qwen3-vl ("model
+architecture does not currently support parallel requests", whatever OLLAMA_NUM_PARALLEL says),
 so the gain is one page's drawing, cleaning and lettering overlapping the other's model calls.
-More video memory would not help.
 
 ## E01P01 (5 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | …これで 出来上がり | …And that's it, done. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept; two lines like the original |
+| 1 | …これで 出来上がり | …And that's it. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept; two lines like the original |
 | 2 | ぱらぱら (SFX) | FLUTTER | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads はらはら; should be SPRINKLE. 8b reads it right |
-| 3 | …うーん 足りなかった かも | …Hmm, maybe I still need more. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | …うーん 足りなかった かも | …Hmm, maybe not enough. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | どばどば (SFX) | GLUG GLUG | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads どはどは; the glossary maps it to GLUG GLUG |
 | 5 | ざぶん (SFX) | SPLASH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads さぶん |
 
@@ -55,44 +56,44 @@ More video memory would not help.
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off… | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic). The text block no longer takes in art under the bubble |
+| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic). The text block no longer takes in art under the bubble |
 | 2 | あれ お目覚めね! | Hey, you're awake! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
 | 3 | 大丈夫？ 寒くない？ | You okay? Not too cold? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening too — can't protect me from this cold anymore. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "protect you" |
+| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening, can't protect me from this cold anymore. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "protect you" |
 
 ## E35P02 (13 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 私 バカだった! | I was such a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | was lettered low in the area, and a hair tip below was erased: a bit of art at the panel corner was taken for a line of text. Now I WAS SUCH / A FOOL! where the original was, hair kept |
-| 2 | もうすぐ加速もできなくなりそう | I'm about to lose the ability to accelerate too. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | 16 of 20 px: the English is long for the bubble |
-| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | もうすぐ加速もできなくなりそう | I'm gonna lose my speed soon | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | すぐにあきらめてしまうと思ったのに! | I thought I'd give up right away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | wrong subject: "I thought they'd give up quickly!" |
-| 6 | なんとかうまくまければいいのだけど | I just hope I can manage somehow. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
+| 6 | なんとかうまくまければいいのだけど | I just hope I can manage to keep up | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
 | 7 | 捕まえられる前に! | Before they catch us! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two escape! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
+| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two get away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
 | 9 | …つかれた… | I'm so tired… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 10 | いけない! | No! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 11 | でもわたし… | But me… | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "But I…" reads better |
-| 12 | しっかりしなきゃペッパー! | I've got to stay focused, Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 12 | しっかりしなきゃペッパー! | I gotta stay focused, Pepper! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 13 | …すごく… | So much… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E35P03 (4 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | そうなったら すぐに攻撃よ | If that's the case, we'll attack right away. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the middle line comes close to the outline on the left: the bubble's rows are measured to its light outline, not inside it |
-| 2 | まもなく 魔力切れに なりそうだ | We're gonna run out of magic power soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
+| 1 | そうなったら すぐに攻撃よ | If that's the case, I'll attack right away. | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the middle line comes close to the outline on the left: the bubble's rows are measured to its light outline, not inside it |
+| 2 | まもなく 魔力切れに なりそうだ | I'm about to run out of magic power soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
 | 3 | ああ この追跡劇も もうすぐ終わる | Ah, this chase scene's almost over. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
-| 4 | 今のあれ 見えた？ | Did you see what just happened? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | 今のあれ 見えた？ | Did you see me now? | ✓ | ✗ | ✓ | ✓ | ~ | ✓ | read as 今のおれ; the code before this run reads it the same way now. Lines stepped |
 
 ## E36P01 (3 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | 謝罪だと? | Apologize?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | 何を言っている! | What are you saying?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 1 | 謝罪だと? | Apologize? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | 何を言っている! | What are you saying! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 3 | この愚か者を 牢屋に放り込め! | Throw this fool into jail! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E36P02 (5 items, 0 skipped)
@@ -101,7 +102,7 @@ More video memory would not help.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the cell bars behind it are repainted (MI-GAN). The original has a dark drop shadow; ours has none |
 | 2 | 魔法牢獄め! ああああ! | Magic prison! Aaah! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | ガラッ! (SFX) | CLANK! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
+| 3 | ガラッ! (SFX) | CLANG! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
 | 4 | もう! | Ugh! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | 何もできないってことね! | So nothing can be done, huh? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | Pepper means herself: "So I can't do anything, huh?" |
 
@@ -113,7 +114,7 @@ More video memory would not help.
 | 2 | 私 バカだった! | I was a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | was stepped and left of the middle: one row of the spiky bubble stopped at a speck of ink inside the lettering. Now I WAS / A FOOL! on one centre |
 | 3 | おとなしく して | Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | 一体 誰なの?! | Who are you? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the original's blue glow is not reproduced |
+| 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | read as シユウウ, still FSSSH. The original's blue glow is not reproduced |
 | 6 | しーっ! 静かにして! | Shh! Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 7 | 来て | Come here! | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | two lines in the room below the line above; a little left of 来て |
 | 8 | ここから 出してあげる | I'll get you out of here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
@@ -138,10 +139,10 @@ More video memory would not help.
 | 1 | 道を開けて… | Clear the path… | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | – | ズウン (SFX) | – | ✗ | – | – | ✓ | – | – | the art look returned nothing in the final runs, so it is left as drawn; earlier runs of the same pipeline code found it (THOOM, THUD). 4b variance |
 | 2 | 傷が… 消えた | The wound… gone. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | さあ急ごう 宝物が 待っている! | Come on, hurry up! The treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | さあ急ごう 宝物が 待っている! | Alright, let's rush—treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | そうだ! | Right! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | いつもながら まるで奇跡だ | As always, it's like a miracle. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 6 | ヒーラーのおかげで 俺らは無敵! 次の怪物を 倒しに行こう! | Thanks to the healer, we're invincible! Let's go take down the next monster! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 6 | ヒーラーのおかげで 俺らは無敵! 次の怪物を 倒しに行こう! | Thanks to the healer, we're invincible! Let's take down the next monster! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 7 | すばらしい ヒーラーの 力だ! | Awesome healer power! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 
 ## E38P03 (4 items, 0 skipped)
@@ -158,17 +159,20 @@ More video memory would not help.
 | | ✓ | ~ | ✗ | – |
 |---|---|---|---|---|
 | Translated | 64 | | 1 | |
-| Sense | 52 | 5 | 7 | 1 |
+| Sense | 51 | 5 | 8 | 1 |
 | Erased, no ghost | 64 | | | 1 |
 | Background kept | 65 | | | |
 | Fits | 59 | 5 | 0 | 1 |
 | Outline matches | 62 | 2 | | 1 |
 
-The previous run, with the old Fits: 65 translated; Sense 53 ✓, 5 ~, 7 ✗; Fits 64 ✓, 1 ~. Under
-the stricter Fits its E35P02 #1 is ✗ (lettered low in the area) and E36P03 #2 and E38P01 #6 are ~
-(stepped lines).
+The previous run: 64 translated; Sense 52 ✓, 5 ~, 7 ✗; Fits 59 ✓, 5 ~. The model gave different
+wording on 8 of the 11 pages this time, with the same readings except two (E35P03 #4, E36P03 #5).
+That is the model, not the code: run again today, the code before streaming letters E35P02 and
+E35P03 pixel for pixel as this run does, and E01P01 the same as the new code run alone. Streaming
+or not gives the same answer. The one change in the totals is E35P03 #4, a misread (✗), whose
+lines are also stepped (~); E35P02 #2 is shorter now and fits (✓).
 
-Every ✗ in Sense is the 4b model: a misread (ぱらぱら), a wrong subject or gist, or a name
+Every ✗ in Sense is the 4b model: a misread (ぱらぱら, 今のあれ), a wrong subject or gist, or a name
 transliterated (Rea, Shichimi; a names list in settings fixes those: `run.mjs --terms=terms.txt`).
 
 ## Found in the last runs
