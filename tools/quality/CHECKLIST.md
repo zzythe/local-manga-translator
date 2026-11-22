@@ -12,18 +12,19 @@ offline (unit test or mask dump), needs a full run to confirm on the page.
 
 ## Which run each page's output comes from
 
-All pages: full run on 2026-11-21 (`run.mjs --unload --pause=30`), translator code as of commit b1f96a0.
-E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
+All pages: one warm full run on 2026-11-21 (`run.mjs`), translator code as of the commit that adds
+this line (1024 px detection, 8k context, the loose and bubble fixes below). 62.8 s for the 11
+pages, against 87.8 s before the speed changes.
 
 ## E01P01 (5 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | …これで 出来上がり | ...and that's it done. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept |
+| 1 | …これで 出来上がり | ...And there you go. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | translucent bubble kept |
 | 2 | ぱらぱら (SFX) | FLUTTER | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads はらはら; should be SPRINKLE. 8b reads it right |
-| 3 | …うーん 足りなかった かも | ...hmm, maybe not enough. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 3 | …うーん 足りなかった かも | ...Hmm, maybe not quite enough. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | どばどば (SFX) | GLUG GLUG | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads どはどは; the glossary maps it to GLUG GLUG |
-| 5 | ざぶん (SFX) | Saan... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads さなん/きぶん, 8b きぶん; no fix without a better read |
+| 5 | ざぶん (SFX) | SPLASH | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 4b reads さぶん this time (earlier さなん/きぶん) |
 
 ## E01P02 (3 items, 0 skipped)
 
@@ -31,29 +32,29 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | うん… カンペキ | Yeah… perfect. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | ダメ！ そんなことしちゃ だめなんだから | No way! You can't do that! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | パシャ (SFX) | SPLISH | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the yellow splash is now kept and the colour matches. Lettered at 22 px, smaller than the kana: the English is longer and stays within the source width |
+| 3 | パシャ (SFX) | SPLISH | ✓ | ✓ | ✓ | ✓ | ~ | ✓ | the yellow splash beside it is kept (c3129ea) and the colour matches. Lettered at 25 px, smaller than the kana: the English is longer and stays within the source width |
 
 ## E35P01 (4 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut off... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic): "my Rea's about to run out" |
+| 1 | ごめん もうすぐ リアが 切れそう | Sorry, the rear's about to cut out... | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | リア is Rea (magic energy in this comic): "my Rea's about to run out" |
 | 2 | あれ お目覚めね! | Hey, you're awake! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
 | 3 | 大丈夫？ 寒くない？ | You okay? Not too cold? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening—can't protect you from this cold anymore. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | オーラも 弱ってきて この寒さから 守れないの | My aura's weakening too — can't protect me from this cold anymore. | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "protect you" |
 
 ## E35P02 (13 items, 0 skipped)
 
 | # | Original | English | Tr | Sense | Erased | Bg | Fits | Outl | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 私バカだった! | I was such a fool! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 2 | もうすぐ加速もできなくなりそう | I'm gonna lose my speed soon | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 2 | もうすぐ加速もできなくなりそう | I'm about to lose the ability to accelerate too. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 3 | でもあのドラゴンと乗り手は何時間も何時間もスピードを保ってる | But that dragon and its rider have been maintaining top speed for hours and hours | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 4 | 私たちがペースを落としたらすぐ捕まっちゃう | If we slow down, we'll be caught right away | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | すぐにあきらめてしまうと思ったのに! | I thought I'd give up right away! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | wrong subject: "I thought they'd give up quickly!" |
-| 6 | なんとかうまくまければいいのだけど | I just hope I can manage to keep up | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
+| 6 | なんとかうまくまければいいのだけど | I just hope I can manage somehow. | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | まく = shake off: "I hope we can lose them somehow" |
 | 7 | 捕まえられる前に! | Before they catch us! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two escape! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
+| 8 | それじゃ足りないあの二人を倒さないと! | I can't let those two go unchallenged! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | "That's not enough, we have to take those two down!" |
 | 9 | …つかれた… | I'm so tired... | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 10 | いけない! | No! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 11 | でもわたし… | But me... | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | "But I..." reads better |
@@ -67,7 +68,7 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 | 1 | そうなったら すぐに攻撃よ | If that's the case, we'll attack right away. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | ああ この追跡劇も もうすぐ終わる | Ah, this chase scene's almost over. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
 | 3 | 今のあれ 見えた？ | Did you see what just happened? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | まもなく 魔力切れに なりそうだ | Looks like we're about to run out of magic. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
+| 4 | まもなく 魔力切れに なりそうだ | We're gonna run out of magic power soon. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | white on a black bubble |
 
 ## E36P01 (3 items, 0 skipped)
 
@@ -75,7 +76,7 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 謝罪だと? | Apologize? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | 何を言っている! | What are you saying! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 3 | この愚か者を 牢屋に放り込め! | Throw this fool in jail! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 8b left this one untranslated |
+| 3 | この愚か者を 牢屋に放り込め! | Throw this fool into jail! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 8b left this one untranslated |
 
 ## E36P02 (5 items, 0 skipped)
 
@@ -85,7 +86,7 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 | 2 | プシュウ… (SFX) | PSSSHH | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the original has a dark drop shadow; ours has none |
 | 3 | ガラッ! (SFX) | CLANG! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | outlined like the original, rotated to its angle |
 | 4 | もう! | Ugh! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 5 | 何もできないってことね! | You can't do anything, huh? | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | Pepper means herself: "So I can't do anything, huh?" The て against the bubble edge is erased |
+| 5 | 何もできないってことね! | So, I can't do anything, huh? | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the て against the bubble edge is erased |
 
 ## E36P03 (9 items, 0 skipped)
 
@@ -97,8 +98,8 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 | 4 | 一体 誰なの?! | Who are you?! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 5 | シュウウ… (SFX) | FSSSH | ✓ | ✓ | ✓ | ~ | ✓ | ~ | crystal glow kept, FSSSH centred on the original, the "…" dots now erased too (commit baf00bc). Where シ crossed the bottle's light outline the inpaint leaves a soft smudge. The original's blue glow is not reproduced |
 | 6 | しーっ! 静かにして! | Shh! Be quiet! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 7 | 来て | Come here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | split from the bubble chained to it |
-| 8 | ここから 出してあげる | I'll get you out of here! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 7 | 来て | Come here | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the model no longer reports it at 1024 px; found by the bubble scan as more lettering in the same translucent bubble |
+| 8 | ここから 出してあげる | I'll get you out of here | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 9 | シチミ? | Chitami? | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | name: Shichimi |
 
 ## E38P01 (7 items, 0 skipped)
@@ -120,7 +121,7 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 | 1 | 道を開けて… | Clear the path... | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 2 | ズウン (SFX) | THOOM | ✓ | ✓ | ✓ | ✓ | ✓ | ~ | the hand below is untouched. Glow not reproduced |
 | 3 | 傷が… 消えた | The wound... gone. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| 4 | さあ急ごう 宝物が 待っている! | Now, hurry! The treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| 4 | さあ急ごう 宝物が 待っている! | Come on, hurry! The treasure awaits! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | the model also reports the last line with its box below the bubble; that copy is dropped instead of erasing the torch glow |
 | 5 | そうだ! | Right! | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 6 | いつもながら まるで奇跡だ | As always, it's like a miracle. | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | 7 | ヒーラーのおかげで 俺らは無敵! 次の怪物を 倒しに行こう! | Thanks to the healer, they're invincible! Let's go defeat the next monster! | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | 4b reads 俺 as 倆: "we're invincible" |
@@ -140,7 +141,7 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 | | ✓ | ~ | ⟳ | ✗ |
 |---|---|---|---|---|
 | Translated | 65 | | | 0 |
-| Sense | 52 | 4 | | 9 |
+| Sense | 53 | 4 | | 8 |
 | Erased, no ghost | 65 | | | 0 |
 | Background kept | 64 | 1 | | 0 |
 | Fits | 64 | 1 | | 0 |
@@ -148,17 +149,18 @@ E36P03 again after commit baf00bc (ellipsis dots after loose lettering).
 
 Skipped: 0 on every page.
 
-Every ✗ in Sense is the 4b model: a misread (ぱらぱら, ざぶん, 俺), a wrong subject or gist, or a
+Every ✗ in Sense is the 4b model: a misread (ぱらぱら, 俺), a wrong subject or gist, or a
 name transliterated (Rea, Shichimi). The one ~ in Background is E36P03 #5, where the SFX crossed a
 light outline in the art and the inpaint can't redraw the line.
 
-## The items that waited on a full run
+## Found in the last runs
 
-- E01P01 #4: GLUG GLUG. ✓
-- E36P03 #3: "Be quiet", no comma. ✓
-- E36P03 #5: crystal glow kept and FSSSH centred. Two of the three "…" dots were left behind
-  (small blurred dots fail the colour test); fixed in baf00bc and confirmed on the page.
-- E38P02 #2: the hand is untouched. ✓
+- E38P02: the model sometimes reports 待っている! a second time, with its box under the bubble over
+  the torch. The crop there reads as nonsense (待つしい, けんじい) and was lettered as a sound effect
+  over an erased patch of glow. A loose detection whose detection text (or reading) repeats a bubble
+  beside it is now dropped.
+- E36P03: at 1024 px detection the model misses 来て. More lettering of the same size in the same
+  closed bubble is now taken with the line the model reported.
 - E38P01 #5: the prompt's くっ → Ngh! does not take with 4b. Left as ~.
 
 ## Running it again
