@@ -141,6 +141,18 @@ test('looseRegions keeps text outside bubbles and drops repeats of bubble text',
   assert.deepEqual(loose, [300, 600]);
 });
 
+test('looseRegions drops a misreading of the bubble beside it but keeps sound effects there', () => {
+  const bubble = {x: 100, y: 100, width: 120, height: 90, original: 'さあ急ごう 宝物が 待っている!'};
+  const regions = [
+    {x: 150, y: 200, width: 60, height: 60, original: '待つしい'}, // the bubble's last line, misread
+    {x: 230, y: 120, width: 40, height: 40, original: 'ドドド'},   // a sound effect beside it
+    {x: 230, y: 180, width: 40, height: 40, original: 'いるか'},   // only two of its three kana are in the bubble
+    // the detection read the last line, with its box below the bubble; the crop there reads as nonsense
+    {x: 140, y: 205, width: 90, height: 30, original: 'けんじい', region: {original: '待っている!'}}
+  ];
+  assert.deepEqual(t.looseRegions(regions, [bubble]).map(r => r.original), ['ドドド', 'いるか']);
+});
+
 test('cleanReading drops non-text readings and fixes vertical ellipses', () => {
   const zh = t.languageInfo('Chinese'), ko = t.languageInfo('Korean');
   assert.equal(t.cleanReading('No text', 10, zh), '');
@@ -298,6 +310,16 @@ test('a grey bubble crossed by light streaks is found around a model box', () =>
   assert.ok(found.length >= 1, 'grey bubble found');
   const b = found[0];
   assert.ok(b.x <= 152 && b.x + b.width >= 240 && b.y <= 122 && b.y + b.height >= 175, JSON.stringify([b.x, b.y, b.width, b.height]));
+});
+
+test('lettering the model missed in the same grey bubble is found with the line it reported', () => {
+  const img = page(800, 500, [60, 60, 70]);
+  ellipse(img, 250, 150, 200, 90, [175, 175, 178], [20, 20, 20]);
+  glyphs(img, 110, 110, 8, 1, [15, 15, 15]);  // the line the model reported
+  glyphs(img, 330, 180, 3, 1, [15, 15, 15]);  // a short line further down the bubble that it did not
+  const found = t.findBubbleAround(img, {x: 108, y: 108, width: 130, height: 20}, []);
+  assert.ok(found.some(b => b.x <= 330 && b.x + b.width >= 372 && b.y <= 180 && b.y + b.height >= 196),
+    JSON.stringify(found.map(b => [b.x, b.y, b.width, b.height])));
 });
 
 test('light lettering in a solid dark bubble is found inverted and lettered light', () => {

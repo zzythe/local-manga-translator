@@ -903,19 +903,30 @@
   }
 
   // Text found on the artwork that is not bubble lettering already read. Model boxes are rough,
-  // so a detection repeating the text of a bubble near it is that bubble. The same words
-  // elsewhere on the page (a second 碎碎念, say) are separate text.
+  // so a detection repeating the text of a bubble near it is that bubble, even misread (待つしい
+  // beside 待っている). What the detection said counts as well as the reading of the crop, which
+  // can be nonsense when the box missed the lettering. The same words elsewhere on the page (a
+  // second 碎碎念, say) are separate text.
   function looseRegions(regions, bubbles) {
     return regions.filter(r => {
-      const text = bare(r.original);
-      if (!text) return false;
+      if (!bare(r.original)) return false;
+      const texts = [r.original, r.region?.original].map(bare).filter(Boolean);
       return !bubbles.some(b => {
         if (overlap(b.erase || b, r) > 0.3) return true;
         const known = bare(b.original);
-        if (!known || !(known.includes(text) || text.includes(known))) return false;
+        if (!known || !texts.some(text => known.includes(text) || text.includes(known) || echoes(text, known))) return false;
         return overlap(expand(b, 1.5, Infinity, Infinity, 60), r) > 0;
       });
     });
+  }
+
+  // A misreading of part of `known`: three or more characters, starting with two in a row from it
+  // and mostly made of its characters. Small kana count as their full size.
+  function echoes(text, known) {
+    const big = t => t.replace(/[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]/g, c => String.fromCharCode(c.charCodeAt(0) + 1));
+    const a = [...big(text)], k = big(known);
+    if (a.length < 3 || !k.includes(a[0] + a[1])) return false;
+    return a.filter(c => k.includes(c)).length >= a.length * 0.7;
   }
 
   // The paper under the text in `box`: its usual brightness, the scan threshold for it and its tint.
@@ -969,8 +980,15 @@
       // background); a dark bubble or caption box is flat black or a flat dark colour. Anything
       // else round the text is artwork: the text is a sound effect or a caption on the art, which
       // the loose path handles.
-      return findBubbleText(rgba, w, h, {paper: paper.threshold, tint: paper.tint, panels})
-        .filter(b => overlap(b, near) > 0.3 && (coverage(box, b) >= 0.25 || coverage(b, box) >= 0.6) && (inverted ? b.erase.solid : b.enclosed || paper.level >= 170))
+      const all = findBubbleText(rgba, w, h, {paper: paper.threshold, tint: paper.tint, panels});
+      const hits = all.filter(b => overlap(b, near) > 0.3 && (coverage(box, b) >= 0.25 || coverage(b, box) >= 0.6) && (inverted ? b.erase.solid : b.enclosed || paper.level >= 170));
+      // Other lettering of the same size in the same closed bubble (来て under しーっ! 静かにして!)
+      // belongs to it too, whether or not the model reported it. It is marked `extra`: the model's
+      // reading of the box is not its text.
+      const size = Math.max(0, ...hits.map(b => b.typical));
+      const bubbles = new Set(hits.filter(b => b.enclosed).map(b => b.space));
+      return all.filter(b => hits.includes(b) || (b.enclosed && bubbles.has(b.space) && b.typical >= size * 0.6 && b.typical <= size * 1.6))
+        .map(b => hits.includes(b) ? b : {...b, extra: true})
         .map(b => !inverted ? b : {...b, inverted: true, erase: {...b.erase, fill: b.erase.fill.map(v => 255 - v),
           background: 255 - b.erase.background, color: invertHex(b.erase.color)}});
     };
@@ -2060,7 +2078,7 @@
       for (const r of dedupe(regions)) {
         if (!bare(r.original) || covered(r)) continue;
         const found = scanAround(wctx, W, H, r, panels);
-        if (found.length) { for (const b of found) if (!known.some(k => overlap(k, b) > 0.5)) known.push({...b, region: r}); continue; }
+        if (found.length) { for (const b of found) if (!known.some(k => overlap(k, b) > 0.5)) known.push(b.extra ? b : {...b, region: r}); continue; }
         const item = planLoose(wctx, W, H, r);
         if (item && !item.failed) loose.push(item);
         else skipped.push({original: r.original, box: [r.x, r.y, r.width, r.height].map(v => Math.round(v / scale)), reason: item?.failed || 'too small'});
