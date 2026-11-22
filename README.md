@@ -2,6 +2,8 @@
 
 Translate manga, manhwa and manhua **right on the page**, with AI that runs on your own computer. Nothing you read is uploaded, there's no account, and it keeps working on sites and pages that online translators refuse.
 
+**Open source:** the code is public, so you can see exactly what the extension does.
+
 **Get it:** Chrome Web Store · Microsoft Edge Add-ons · Firefox Add-ons *(links once the listings are live)* · [Website](https://zzythe.github.io/local-manga-translator/)
 
 ## How it works
@@ -21,18 +23,7 @@ The free plan translates 30 new pages a day. Pro removes the limit with a one-ti
 
 Everything runs locally. The extension connects only to the comic site you're reading (to load its images), to Ollama on your own computer, and to ExtensionPay if you buy Pro. It collects no analytics. See the [privacy policy](https://zzythe.github.io/local-manga-translator/privacy.html).
 
-## Building it yourself
-
-This repository is source-available so you can check exactly what the extension does. You may build and use it for personal, non-commercial use; you may not publish or share builds (see [LICENSE.md](LICENSE.md)).
-
-```sh
-npm install
-npm run build      # dist/chrome, dist/firefox and store zips
-npm test           # unit tests for the image and text pipeline
-node tools/e2e.mjs # end-to-end test in Microsoft Edge (needs Ollama with a qwen3-vl model)
-```
-
-Load `dist/chrome` with "Load unpacked" on `chrome://extensions` (Developer mode on).
+## Inside the code
 
 | Path | What it is |
 |---|---|

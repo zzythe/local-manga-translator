@@ -39,7 +39,7 @@ FREE AND PRO
 REQUIREMENTS
 Windows 10/11, macOS or Linux, with 4 to 8 GB of free disk space. A graphics card with 6 GB or more of memory translates a page in seconds; without one it works, but slowly.
 
-Source code: https://github.com/zzythe/local-manga-translator
+Open source: https://github.com/zzythe/local-manga-translator
 Support: https://github.com/zzythe/local-manga-translator/issues
 
 ## Single purpose (Chrome privacy tab)
