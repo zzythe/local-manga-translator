@@ -3878,6 +3878,25 @@
     try { sessionStorage.removeItem('manga-translator-session'); } catch {}
   }
 
+  // A canvas as an image file. canvas.toBlob (and OffscreenCanvas.convertToBlob) encode in the
+  // page's idle time; on the first page after the browser starts Chromium gives them so little of
+  // it that a page took 7 s instead of 0.1 s. When it is late, the canvas is encoded at once.
+  function canvasBlob(canvas, type, quality) {
+    return new Promise(resolve => {
+      let finished = false;
+      const finish = blob => { if (!finished) { finished = true; clearTimeout(late); resolve(blob); } };
+      const late = setTimeout(() => {
+        let blob = null;
+        try {
+          const url = canvas.toDataURL(type, quality), at = url.indexOf(',');
+          blob = base64ToBlob(url.slice(at + 1), url.slice(5, at).replace(/;base64$/, ''));
+        } catch {}
+        if (blob) finish(blob);
+      }, 40 + canvas.width * canvas.height / 2e4);
+      canvas.toBlob(finish, type, quality);
+    });
+  }
+
   const browserEnv = {
     makeCanvas(width, height) {
       const c = document.createElement('canvas'); c.width = Math.max(1, width); c.height = Math.max(1, height); return c;
@@ -3905,7 +3924,7 @@
       return bytes.length === img.data.length ? bytes : null;
     },
     async encode(canvas, mime = 'image/jpeg', quality = 0.9) {
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));
+      const blob = await canvasBlob(canvas, mime, quality);
       if (!blob) throw new Error('The browser could not encode the image.');
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
@@ -4545,7 +4564,7 @@
         if (!isCurrent()) throw abortError();
         if (!result.canvas) return {blob: null, note: result.message};
         const big = result.canvas.width * result.canvas.height > 8e6;
-        const out = await new Promise(resolve => result.canvas.toBlob(resolve, big ? 'image/jpeg' : 'image/png', 0.93));
+        const out = await canvasBlob(result.canvas, big ? 'image/jpeg' : 'image/png', 0.93);
         result.canvas.width = result.canvas.height = 1;
         if (!out) throw new Error('The browser could not create the translated image.');
         return {blob: out, note: result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : ''};
