@@ -26,17 +26,17 @@
 
       <h2>What the extension does with web pages</h2>
       <p>When you turn the translator on for a page, it finds the comic images on that page and downloads them from the website that serves them, just as your browser does when it shows them. It sends your cookies and the page address to that website with the request, because many comic sites refuse image downloads without them. The images are sent to Ollama at <code>127.0.0.1</code>, on your own computer, for reading and translation. Translated pages are kept in your browser's storage for that site while the tab is open, so they can be shown again instantly. Copies from closed tabs are removed automatically once they're more than two hours old, the next time the translator runs on that site.</p>
-      <p>The extension does nothing on a website until you turn it on there, either with the toolbar button, the right-click menu or the keyboard shortcut, or by choosing "Always translate on this site".</p>
+      <p>The extension does nothing on a website until you turn it on there, either with the toolbar button, the right-click menu or the keyboard shortcut, or by setting it to translate that site automatically.</p>
 
       <h2>What is stored</h2>
-      <p>In your browser's extension storage, on your computer only: your language and model settings, the sites you chose to always translate, how many pages you translated today and in total (for the free plan's daily limit), and whether Pro is active. None of this is sent to the developer.</p>
+      <p>In your browser's extension storage, on your computer only: your settings, the sites you chose to translate automatically, the names you entered for each site, how many pages you translated today and in total (for the free plan's daily limit), and whether Pro is active. None of this is sent to the developer.</p>
 
       <h2>Payments (Pro)</h2>
       <p>Pro is sold through <a href="https://extensionpay.com">ExtensionPay</a>, which uses <a href="https://stripe.com">Stripe</a> to process payments. When you check whether Pro is active, or buy or restore it, the extension contacts ExtensionPay with an anonymous identifier for your installation. If you pay or log in, ExtensionPay and Stripe receive the email address and payment details you enter. Their privacy policies apply: <a href="https://extensionpay.com/privacy">ExtensionPay</a>, <a href="https://stripe.com/privacy">Stripe</a>.</p>
 
       <h2>Downloads during setup</h2>
       <p>The setup page links to Ollama's official download and asks Ollama to download a translation model from Ollama's model library. Those downloads come from Ollama's servers under <a href="https://ollama.com/privacy">Ollama's terms</a>.</p>
-      <p>The extension also downloads two small models from Hugging Face once (72 MB in all: one finds speech bubbles, one repaints the artwork under sound effects) and keeps them in the browser. Nothing from your pages is sent with those requests. You can turn them off in the translator's settings.</p>
+      <p>The extension also downloads two small models from Hugging Face once (72 MB in all: one finds speech bubbles, one repaints the artwork under sound effects) and keeps them in the browser. Nothing from your pages is sent with those requests.</p>
 
       <h2>What the extension never does</h2>
       <ul>

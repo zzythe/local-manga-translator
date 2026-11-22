@@ -746,3 +746,12 @@ test('streamed translations: each line once its object is complete, whatever the
   assert.deepEqual(t.chatPayload('m', {schema: {}, system: '', user: ''}, true).stream, true);
   assert.deepEqual(t.chatPayload('m', {schema: {}, system: '', user: ''}).stream, false);
 });
+
+test('the language to translate into defaults to the browser\'s when it is a target, else English', () => {
+  const cases = {'en-US': 'English', 'es': 'Spanish (Spain)', 'es-ES': 'Spanish (Spain)', 'es-MX': 'Spanish (Latin America)', 'es-419': 'Spanish (Latin America)',
+    'pt-BR': 'Portuguese (Brazil)', 'pt': 'Portuguese (Brazil)', 'pt-PT': 'Portuguese (Portugal)', 'zh-CN': 'Chinese (Simplified)',
+    'zh-TW': 'Chinese (Traditional)', 'zh-Hant-HK': 'Chinese (Traditional)', 'ko-KR': 'Korean', 'ja': 'Japanese', 'fr-CA': 'French',
+    'de-AT': 'German', 'it': 'Italian', 'id-ID': 'Indonesian', 'vi': 'Vietnamese', 'ru-RU': 'Russian',
+    'uk-UA': 'English', 'nl': 'English', 'constructor': 'English', '': 'English', undefined: 'English'};
+  for (const [tag, target] of Object.entries(cases)) assert.equal(t.browserTarget(tag === 'undefined' ? undefined : tag), target, tag);
+});

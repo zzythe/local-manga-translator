@@ -38,6 +38,12 @@ const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'm
 let [sw] = ctx.serviceWorkers();
 if (!sw) sw = await ctx.waitForEvent('serviceworker');
 const id = new URL(sw.url()).host;
+// The control is in a closed shadow root; open ones let the test read it on the sample page,
+// where the translator runs in the page itself.
+await ctx.addInitScript(() => {
+  const attach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (options) { return attach.call(this, {...options, mode: 'open'}); };
+});
 
 try {
   // 1. Setup page opens on install and detects Ollama + model.
@@ -60,6 +66,10 @@ try {
   check('helper models downloaded and loaded', prepared?.ready === true,
     `${((Date.now() - t1) / 1000).toFixed(0)} s, ${stats0?.threads} threads${prepared?.error ? ', ' + prepared.error : ''}`);
 
+  // Settings as an older version stored them: names for every site, and the helper models off.
+  const oldNames = 'テスト = Test\nサンプル = Sample';
+  await sw.evaluate(terms => chrome.storage.local.set({settings: {terms, detector: false}}), oldNames);
+
   // 2. The sample page translates both pages.
   const demo = await ctx.newPage();
   const t0 = Date.now();
@@ -77,6 +87,38 @@ try {
   check('sound effect repainted by the inpainting model', stats?.repaints >= 1, JSON.stringify(stats));
   let plan = await sw.evaluate(() => plan());
   check('meter counted 2 pages', plan.used === 2, JSON.stringify(plan));
+
+  // 2b. The settings panel.
+  let {settings} = await sw.evaluate(() => chrome.storage.local.get('settings'));
+  check('old names moved to this site, old settings removed', settings.names?.[id] === oldNames &&
+    !('terms' in settings) && !('detector' in settings), JSON.stringify(settings));
+  const panel = () => demo.evaluate(() => {
+    const root = document.querySelector('manga-translator').shadowRoot, $ = s => root.querySelector(s);
+    const shown = s => !!$(s) && $(s).checkVisibility();
+    return {language: navigator.language, into: $('#target').value, auto: $('#always-label').textContent, moreOpen: $('#more').open,
+      visible: ['#target', '#always', '#source', '#model', '#font', '#uppercase', '#terms'].filter(shown), detector: !!$('#detector'),
+      models: $('#model').options.length, modelRow: !$('#model-row').hidden, font: $('#font').options[0].textContent,
+      capitals: $('#uppercase').parentElement.textContent.trim(), names: $('#names-label').textContent,
+      labelFont: getComputedStyle($('#always-label')).fontFamily, titleFont: getComputedStyle($('#title')).fontFamily};
+  });
+  await demo.evaluate(() => document.querySelector('manga-translator').shadowRoot.getElementById('gear').click());
+  let p = await panel();
+  check('panel: Into from the browser language, the site setting, the rest under More', p.into === 'English' && /^en(-|$)/.test(p.language) &&
+    p.auto === `Translate ${id} automatically` && !p.moreOpen && p.visible.join() === '#target,#always' && !p.detector, JSON.stringify(p));
+  check('panel labels in the system font, title in Comic Neue', !/MangaLettering/.test(p.labelFont) && /^system-ui/.test(p.labelFont) &&
+    /^MangaTranslatorUI/.test(p.titleFont), `${p.labelFont} | ${p.titleFont}`);
+  await demo.evaluate(() => document.querySelector('manga-translator').shadowRoot.querySelector('#more > summary').click());
+  await demo.waitForTimeout(300);
+  p = await panel();
+  check('More: From, Model only with two or more models, Font, All capitals, Names with a count',
+    p.moreOpen && p.visible.includes('#source') && p.visible.includes('#font') && p.visible.includes('#uppercase') && !p.visible.includes('#terms') &&
+    p.modelRow === (p.models >= 2) && p.font === 'Automatic' && p.capitals === 'All capitals' && p.names === 'Names (2)', JSON.stringify(p));
+  ({settings} = await sw.evaluate(() => chrome.storage.local.get('settings')));
+  await demo.reload();
+  await demo.waitForFunction(() => document.querySelector('manga-translator')?.shadowRoot?.getElementById('more'));
+  await demo.evaluate(() => document.querySelector('manga-translator').shadowRoot.getElementById('gear').click());
+  p = await panel();
+  check('More stays open after a reload', settings.more === true && p.moreOpen, JSON.stringify({stored: settings.more, open: p.moreOpen}));
 
   // 3. A site with hotlink-protected images on another origin, opened like the toolbar button does.
   const reader = await ctx.newPage();
@@ -125,6 +167,19 @@ try {
   await sw.evaluate(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
   await limited.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 300000}).then(
     () => check('Pro unlocks the waiting page', true), () => check('Pro unlocks the waiting page', false));
+
+  // 6b. Names entered on the sample page belong to it alone. (Changing them translates its pages
+  // again, so this comes after Pro.)
+  await demo.bringToFront();
+  await demo.evaluate(() => {
+    const root = document.querySelector('manga-translator').shadowRoot, terms = root.getElementById('terms');
+    root.getElementById('names').open = true;
+    terms.value = 'テスト = Test';
+    terms.dispatchEvent(new Event('change'));
+  });
+  await demo.waitForTimeout(300);
+  ({settings} = await sw.evaluate(() => chrome.storage.local.get('settings')));
+  check('names are kept for this site only', JSON.stringify(settings.names) === JSON.stringify({[id]: 'テスト = Test'}), JSON.stringify(settings.names));
 
   // 7. Websites still can't use Ollama directly (the origin rule only covers the extension).
   // Use an ordinary website origin: Ollama always trusts pages served from 127.0.0.1 itself.

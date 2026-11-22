@@ -70,6 +70,18 @@
     return {code: undefined, script: 'other'};
   }
 
+  // The target language for a browser language tag (navigator.language): the browser's own when
+  // it is one of the targets, otherwise English.
+  function browserTarget(tag) {
+    const [base = '', ...rest] = String(tag || '').toLowerCase().split('-'), region = rest.join('-');
+    if (base === 'es') return !region || region === 'es' ? 'Spanish (Spain)' : 'Spanish (Latin America)';
+    if (base === 'pt') return region === 'pt' ? 'Portuguese (Portugal)' : 'Portuguese (Brazil)';
+    if (base === 'zh') return /^(hant|tw|hk|mo)/.test(region) ? 'Chinese (Traditional)' : 'Chinese (Simplified)';
+    const named = {ko: 'Korean', ja: 'Japanese', fr: 'French', de: 'German', it: 'Italian', id: 'Indonesian', in: 'Indonesian',
+      vi: 'Vietnamese', ru: 'Russian'};
+    return Object.hasOwn(named, base) ? named[base] : 'English';
+  }
+
   // How to read each source script. Sent to the vision model.
   function sourceHint(source) {
     const hints = {
@@ -2751,7 +2763,7 @@
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
-      paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
+      browserTarget, paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;
   }
 
@@ -2906,7 +2918,11 @@
    * 8. Browser: settings, images and the floating control
    * ==================================================================================== */
 
-  const DEFAULTS = {source: 'Auto-detect', target: 'English', model: '', uppercase: true, sites: [], font: 'auto', terms: '', detector: true};
+  // What is stored. names: the reader's names and terms for each site (hostname: text); more: the
+  // settings panel's More section was left open. The translation's target defaults to the
+  // browser's language.
+  const DEFAULTS = {source: 'Auto-detect', target: '', model: '', uppercase: true, sites: [], font: 'auto', names: {}, more: false};
+  const host = location.hostname;
 
   // Settings storage. Extension storage is asynchronous, so a copy is loaded before anything starts.
   let storedSettings = null;
@@ -2923,14 +2939,24 @@
     chrome.storage.local.set({settings: storedSettings}).catch(() => {});
   };
 
+  // The settings, with terms: this site's names. Also reports whether what is stored is out of
+  // date (older settings) and should be written again.
   function loadSettings() {
     const saved = readSettings() || {};
-    const s = {...DEFAULTS};
+    const s = {...DEFAULTS, target: browserTarget(navigator.language), names: {}};
     for (const key of Object.keys(DEFAULTS)) if (saved[key] !== undefined) s[key] = saved[key];
     if (!s.model && saved.models?.ollama) s.model = saved.models.ollama; // from version 2
     if (!Array.isArray(s.sites)) s.sites = [];
+    if (!s.names || typeof s.names !== 'object' || Array.isArray(s.names)) s.names = {};
+    else s.names = {...s.names};
+    // Names were one list for every site before: they go to the first site opened since.
+    if (typeof saved.terms === 'string' && saved.terms.trim() && !s.names[host]) s.names[host] = saved.terms;
+    s.terms = typeof s.names[host] === 'string' ? s.names[host] : '';
+    s.outdated = Object.keys(saved).some(key => !(key in DEFAULTS));
     return s;
   }
+  // What is kept of a settings object: the stored keys only.
+  const storedPart = s => Object.fromEntries(Object.keys(DEFAULTS).map(key => [key, s[key]]));
 
   const MAX_BYTES = 30 * 1024 * 1024, MAX_PIXELS = 30e6;
   const blobCache = new Map();
@@ -3012,19 +3038,19 @@
     makeCanvas(width, height) {
       const c = document.createElement('canvas'); c.width = Math.max(1, width); c.height = Math.max(1, height); return c;
     },
-    // The local text detector, run by the extension: null when it is off, still downloading or
-    // failed, and the model then finds the text itself.
+    // The local text detector, run by the extension: null while it is still downloading or when
+    // it failed, and the model then finds the text itself.
     async detectText(crop) {
-      if (!EXTENSION || !loadSettings().detector) return null;
+      if (!EXTENSION) return null;
       const c = document.createElement('canvas'); c.width = c.height = 640;
       c.getContext('2d').drawImage(crop, 0, 0, 640, 640);
       const answer = await background({type: 'detect', image: c.toDataURL('image/jpeg', 0.95), width: crop.width, height: crop.height}).catch(() => null);
       return Array.isArray(answer?.found) ? answer.found : null;
     },
     // The local inpainting model, run by the extension: the new RGBA bytes of img with the masked
-    // pixels repainted, or null (off, still downloading or failed).
+    // pixels repainted, or null (still downloading or failed).
     async inpaint(img, mask) {
-      if (!EXTENSION || !loadSettings().detector) return null;
+      if (!EXTENSION) return null;
       const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
       c.getContext('2d').putImageData(img, 0, 0);
       let bin = '';
@@ -3068,7 +3094,11 @@
     const installed = await findLocalFonts();
     const local = choice === 'bundled' ? null : installed.find(f => choice === 'auto' || f.name === choice) || installed[0] || null;
     const bundled = letteringFonts().map(f => ({...f, face: new FontFace(f.family, Uint8Array.from(atob(f.data), c => c.charCodeAt(0)).buffer, {weight: f.weight})}));
-    bundledLoaded ??= Promise.all(bundled.filter(f => f.family !== 'MangaLettering').map(async f => document.fonts.add(await f.face.load())));
+    // The control's own title and buttons are always in Comic Neue, whatever the lettering font.
+    const ui = bundled.find(f => f.family === 'MangaLettering');
+    bundledLoaded ??= Promise.all([...bundled.filter(f => f.family !== 'MangaLettering').map(f => f.face),
+      new FontFace(UI_FONT_FACE, Uint8Array.from(atob(ui.data), c => c.charCodeAt(0)).buffer, {weight: ui.weight})]
+      .map(async face => document.fonts.add(await face.load())));
     await bundledLoaded;
     if (dialogueFace) document.fonts.delete(dialogueFace);
     dialogueFace = local ? local.face : await bundled.find(f => f.family === 'MangaLettering').face.load();
@@ -3076,6 +3106,7 @@
     return installed.map(f => f.name);
   }
 
+  const UI_FONT_FACE = 'MangaTranslatorUI';
   const ICONS = {
     swap: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
     pause: '<path d="M9 5v14M15 5v14"/>',
@@ -3090,7 +3121,8 @@
     * { box-sizing: border-box; }
     .layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483647;
       --paper: #fffdfa; --ink: #1c1526; --muted: #6e6378; --accent: #e5306b; --wash: #fbe3eb; --line: #d9d2de;
-      font: 700 15px/1.3 "MangaLettering", "Comic Sans MS", "Segoe UI", system-ui, sans-serif; color: var(--ink); }
+      --comic: "${UI_FONT_FACE}", "Comic Sans MS", system-ui, sans-serif;
+      font: 400 14px/1.35 system-ui, "Segoe UI", sans-serif; color: var(--ink); }
     button, select { font: inherit; color: inherit; }
     button { cursor: pointer; }
     :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -3104,7 +3136,7 @@
     .bubble::after { right: 37px; bottom: -10px; border-left-width: 10px; border-top: 10px solid var(--paper); }
     .bar { display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 16px; min-width: 250px; }
     .status { flex: 1; min-width: 0; padding-right: 6px; }
-    .status b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status b { display: block; font: 700 15px/1.3 var(--comic); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .status span { display: block; font: 500 12px/1.3 system-ui, "Segoe UI", sans-serif; color: var(--muted);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track { height: 4px; margin: 4px 0 0; border-radius: 2px; background: var(--wash); overflow: hidden; }
@@ -3114,7 +3146,8 @@
     .icon:hover { background: var(--wash); }
     .icon[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
     .icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-    .action { border: 2px solid var(--ink); background: var(--accent); color: #fff; border-radius: 999px; padding: 6px 14px; flex: none; }
+    .action { border: 2px solid var(--ink); background: var(--accent); color: #fff; border-radius: 999px; padding: 6px 14px; flex: none;
+      font: 700 15px/1.3 var(--comic); }
     .action:hover { filter: brightness(1.08); }
     .action[hidden] { display: none; }
 
@@ -3134,16 +3167,19 @@
 
     .panel { border-top: 2px dashed var(--line); padding: 12px 16px 14px; display: grid; gap: 10px; width: 330px; max-width: 100%; }
     .panel[hidden] { display: none; }
-    .field { display: grid; grid-template-columns: 6.5em 1fr; align-items: center; gap: 8px; }
-    .field label { font-size: 14px; }
+    .field { display: grid; grid-template-columns: 5em 1fr; align-items: center; gap: 8px; }
+    .field[hidden] { display: none; }
     select { width: 100%; min-width: 0; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); padding: 5px 8px;
       font: 500 14px system-ui, "Segoe UI", sans-serif; }
-    .check { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
-    .terms { display: grid; gap: 4px; font-size: 14px; }
+    .check { display: flex; gap: 10px; align-items: center; cursor: pointer; }
     textarea { width: 100%; min-width: 0; resize: vertical; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper);
       padding: 5px 8px; color: inherit; font: 500 13px/1.4 system-ui, "Segoe UI", sans-serif; }
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex: none; }
-    .check[hidden] { display: none; }
+    summary { cursor: pointer; width: fit-content; }
+    .more > summary { color: var(--muted); }
+    .more > summary:hover, .more[open] > summary { color: var(--ink); }
+    .more-body { display: grid; gap: 10px; padding-top: 10px; }
+    .names textarea { margin-top: 6px; }
 
     /* Bubbles lettered while the rest of the page is translated, over the page image. */
     .overlay { position: absolute; overflow: hidden; }
@@ -3154,7 +3190,7 @@
     /* Per-image markers, top-right corner of each page. */
     .mark { position: absolute; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
       background: var(--paper); border: 2px solid var(--ink); pointer-events: auto; padding: 0;
-      font: 700 14px/1 "MangaLettering", "Comic Sans MS", sans-serif; box-shadow: 2px 2px 0 rgba(28, 21, 38, .8); }
+      font: 700 14px/1 var(--comic); box-shadow: 2px 2px 0 rgba(28, 21, 38, .8); }
     .mark.working { border-color: var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; cursor: default; box-shadow: none; }
     .mark.failed { background: var(--accent); color: #fff; }
     .mark.original { background: var(--ink); color: var(--paper); }
@@ -3184,21 +3220,23 @@
         </div>
         <div class="panel" id="panel" hidden>
           <div class="plan" id="plan" hidden><span id="plan-text"></span><button class="pro" id="plan-button"></button></div>
-          <div class="field"><label for="source">From</label><select id="source">${SOURCE_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
           <div class="field"><label for="target">Into</label><select id="target">${TARGET_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
-          <div class="field"><label for="model">Model</label><select id="model"></select></div>
-          <label class="check"><input type="checkbox" id="always"><span id="always-label">Always translate on this site</span></label>
-          <div class="field"><label for="font">Lettering</label><select id="font"><option value="auto">Best installed</option><option value="bundled">Comic Neue</option></select></div>
-          <label class="check"><input type="checkbox" id="uppercase"><span>Letter in capitals (English, Spanish, Portuguese…)</span></label>
-          <label class="check" id="detector-row"><input type="checkbox" id="detector"><span>Find bubbles and repaint artwork with local models (a 72 MB download, once)</span></label>
-          <label class="terms"><span>Names and terms, one per line</span>
-            <textarea id="terms" rows="3" spellcheck="false" placeholder="シチミ = Shichimi"></textarea></label>
+          <label class="check"><input type="checkbox" id="always"><span id="always-label">Translate this site automatically</span></label>
+          <details class="more" id="more"><summary>More</summary>
+            <div class="more-body">
+              <div class="field"><label for="source">From</label><select id="source">${SOURCE_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
+              <div class="field" id="model-row" hidden><label for="model">Model</label><select id="model"></select></div>
+              <div class="field"><label for="font">Font</label><select id="font"><option value="auto">Automatic</option><option value="bundled">Comic Neue</option></select></div>
+              <label class="check"><input type="checkbox" id="uppercase"><span>All capitals</span></label>
+              <details class="names" id="names"><summary id="names-label">Names</summary>
+                <textarea id="terms" rows="3" spellcheck="false" placeholder="シチミ = Shichimi" aria-labelledby="names-label"></textarea></details>
+            </div>
+          </details>
         </div>
       </section>
     </div>`;
 
   let controller = null;
-  const host = location.hostname;
   // Once turned on, the translator stays on in this tab while you move between pages of the
   // site, until you close it with the X button.
   const ON_KEY = 'manga-translator-on';
@@ -3220,7 +3258,19 @@
 
   function start(fromMenu) {
     const settings = loadSettings();
-    const save = () => writeSettings(settings);
+    // Other tabs may have changed the stored settings since: only this site's names and
+    // automatic setting are taken from here, everything else as this panel shows it.
+    const save = () => {
+      const current = loadSettings();
+      settings.names = {...current.names};
+      if (settings.terms.trim()) settings.names[host] = settings.terms; else delete settings.names[host];
+      const auto = settings.sites.includes(host);
+      settings.sites = current.sites.filter(h => h !== host);
+      if (auto) settings.sites.push(host);
+      writeSettings(storedPart(settings));
+    };
+    // Names moved to this site, and settings no longer used, are stored the new way.
+    if (settings.outdated) save();
     remember(true);
     pageCache.purge();
     const pipeline = createPipeline(browserEnv);
@@ -3248,19 +3298,27 @@
 
     $('source').value = settings.source; $('target').value = settings.target;
     $('uppercase').checked = settings.uppercase; $('always').checked = settings.sites.includes(host);
-    $('terms').value = settings.terms; $('detector').checked = settings.detector;
-    $('detector-row').hidden = !EXTENSION;
+    $('terms').value = settings.terms; $('more').open = settings.more;
+    // Names, closed: how many there are. Open: how to write them.
+    const namesLabel = () => {
+      const count = parseTerms($('terms').value).length;
+      $('names-label').textContent = $('names').open ? 'Names: Japanese = English, one per line' : count ? `Names (${count})` : 'Names';
+    };
+    namesLabel();
+    $('names').addEventListener('toggle', namesLabel);
+    $('terms').addEventListener('input', namesLabel);
+    $('more').addEventListener('toggle', () => { if (settings.more !== $('more').open) { settings.more = $('more').open; save(); } });
     fontReady.then(names => {
       $('font').append(...names.map(n => Object.assign(document.createElement('option'), {value: n, textContent: n})));
       $('font').value = [...$('font').options].some(o => o.value === settings.font) ? settings.font : 'auto';
     });
-    $('always-label').textContent = `Always translate on ${host}`;
+    $('always-label').textContent = `Translate ${host} automatically`;
     const changed = () => {
       const fontChanged = settings.font !== $('font').value;
       const languageChanged = settings.source !== $('source').value || settings.target !== $('target').value || settings.model !== $('model').value ||
         settings.terms !== $('terms').value || fontChanged;
       settings.source = $('source').value; settings.target = $('target').value; settings.uppercase = $('uppercase').checked;
-      settings.font = $('font').value; settings.terms = $('terms').value; settings.detector = $('detector').checked;
+      settings.font = $('font').value; settings.terms = $('terms').value;
       if (fontChanged) fontReady = loadLetteringFont(settings.font).catch(() => []);
       if ($('model').value) settings.model = $('model').value;
       settings.sites = settings.sites.filter(h => h !== host);
@@ -3268,7 +3326,7 @@
       save();
       if (languageChanged) retranslateAll();
     };
-    for (const id of ['source', 'target', 'model', 'uppercase', 'always', 'font', 'terms', 'detector']) $(id).addEventListener('change', changed);
+    for (const id of ['source', 'target', 'model', 'uppercase', 'always', 'font', 'terms']) $(id).addEventListener('change', changed);
     $('gear').onclick = () => {
       const open = $('panel').hidden;
       $('panel').hidden = !open; $('gear').setAttribute('aria-expanded', String(open));
@@ -3281,6 +3339,8 @@
       const list = names.length ? names : [settings.model || DEFAULT_MODEL];
       $('model').replaceChildren(...list.map(n => Object.assign(document.createElement('option'), {value: n, textContent: n})));
       $('model').value = list.includes(settings.model) ? settings.model : list[0];
+      // Nothing to choose with one model.
+      $('model-row').hidden = names.length < 2;
       return names;
     }
 

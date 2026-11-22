@@ -38,7 +38,7 @@ Translates the text in comic images on web pages the user chooses, using an AI m
 |---|---|
 | Host permission `<all_urls>` | Comic readers load page images from many different image servers. The extension downloads the image the user asked it to translate (with the page as referrer, which many sites require) and replaces it on the page with the translated version. A small content script checks whether the user turned the translator on for the current site; it does nothing otherwise. |
 | `scripting` | Loads the translator into the current tab when the user clicks the toolbar button, uses the context menu or presses the shortcut. |
-| `storage` | Saves the user's language and model settings, sites set to "always translate", the free plan's daily page count, and Pro status. |
+| `storage` | Saves the user's language and model settings, sites set to translate automatically, names the user entered for each site, the free plan's daily page count, and Pro status. |
 | `contextMenus` | Adds "Translate this page" to the right-click menu. |
 | `declarativeNetRequestWithHostAccess` | Sets the referrer on the extension's own image downloads (many comic sites refuse images without it) and lets the extension's background requests reach the user's local Ollama server, which otherwise rejects browser extensions. The rules apply only to requests made by the extension itself, never to web pages. |
 | `offscreen` | Runs two small local models (one finds speech bubbles, one repaints artwork under sound effects) in an offscreen page shared by all tabs. The background service worker can't start the threads they use. |

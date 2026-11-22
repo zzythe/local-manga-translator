@@ -288,7 +288,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;
     case 'welcome': return answer(openWelcome(message.hash).then(() => ({ok: true})));
     case 'ollama': return answer(ollamaStatus());
-    // Sites set to "always translate": the small page script asks for the translator.
+    // Sites set to translate automatically: the small page script asks for the translator.
     case 'auto': if (sender.tab?.id) inject(sender.tab.id).catch(() => {}); reply({ok: true}); return false;
   }
   return false;
