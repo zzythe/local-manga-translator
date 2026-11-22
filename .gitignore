@@ -1,3 +1,5 @@
 node_modules/
 dist/
 tools/e2e-out/
+local-manga-translator.user.js
+store/raw/

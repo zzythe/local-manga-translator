@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Manga Translator: translate manga on the page, privately</title>
+  <meta name="description" content="A browser extension that translates manga, manhwa and manhua right on the page, with AI running on your own PC. Private, no account, free to start.">
+  <meta property="og:title" content="Local Manga Translator">
+  <meta property="og:description" content="Translate manga, manhwa and manhua right on the page, with AI on your own PC.">
+  <meta property="og:image" content="https://zzythe.github.io/local-manga-translator/img/og.png">
+  <link rel="icon" href="img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="./"><img src="img/icon.png" alt="">Local Manga Translator</a>
+      <div class="links"><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a></div>
+    </nav>
+
+    <header class="hero">
+      <div>
+        <h1>Read raw manga in your language, right on the page.</h1>
+        <p class="lede">The extension cleans the speech bubbles and letters the translation in, page by page as you scroll. The AI runs on your own computer, so nothing you read is uploaded.</p>
+        <div class="ctas">
+          <a class="button primary" id="get-chrome" href="#install">Add to Chrome</a>
+          <a class="button" id="get-edge" href="#install">Edge</a>
+          <a class="button" id="get-firefox" href="#install">Firefox</a>
+        </div>
+        <p class="note">Free: 30 pages a day. Windows, Mac or Linux. A graphics card makes it fast.</p>
+      </div>
+      <div class="compare" id="compare" aria-label="Drag to compare the original and the translation">
+        <img src="img/before.jpg" alt="A comic page in Japanese" loading="eager">
+        <img class="after" src="img/after.jpg" alt="The same page translated into English">
+        <span class="tag l">Original</span><span class="tag r">Translated</span>
+        <div class="handle"></div>
+        <input type="range" min="0" max="100" value="50" aria-label="Compare original and translation">
+      </div>
+    </header>
+  </div>
+
+  <section>
+    <div class="wrap features">
+      <div class="card"><h3>Stays on your PC</h3><p>Pages are read by an AI model running in Ollama on your own computer. No uploads, no account, no tracking.</p></div>
+      <div class="card"><h3>Works on any reader</h3><p>Manga, manhwa and manhua sites, long webtoon strips and single-page readers. Turn it on once per site, or just for this tab.</p></div>
+      <div class="card"><h3>Reads ahead</h3><p>The next pages are translated while you read, and pages you've already seen come back instantly.</p></div>
+      <div class="card"><h3>Lettered to fit</h3><p>The original text is cleaned out of each bubble and the translation follows the bubble's shape.</p></div>
+      <div class="card"><h3>Sound effects too</h3><p>Captions, narration and sound effects drawn on the art are translated, not just speech bubbles.</p></div>
+      <div class="card"><h3>15 languages</h3><p>From Japanese, Korean, Chinese and more into English, Spanish, Portuguese, French, German, Indonesian, Vietnamese and others.</p></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <h2>Set up in a few minutes</h2>
+      <ol class="steps">
+        <li class="card"><h3>Add the extension</h3><p>From your browser's add-on store. A setup page opens by itself.</p></li>
+        <li class="card"><h3>Install the AI engine</h3><p>One click downloads Ollama, the free program that runs the model. The setup page notices when it's ready.</p></li>
+        <li class="card"><h3>Download the model</h3><p>Pick a size for your PC (1.9 to 6.2 GB, once) and watch it download. Then open a comic and click the button.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="wrap">
+      <h2>Pricing</h2>
+      <div class="pricing">
+        <div class="card"><h3>Free</h3><p class="price">$0</p>
+          <ul><li>30 new pages every day</li><li>Every feature and language</li><li>Pages you've translated show again for free</li></ul></div>
+        <div class="card pro"><h3>Pro</h3><p class="price">$6.99 <small>once</small></p>
+          <ul><li>Unlimited pages</li><li>Pay once, keep it, including future updates</li><li>Supports development</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <details><summary>What do I need?</summary><p>A Windows 10/11, macOS or Linux computer with about 4 to 8 GB of free disk space. A graphics card with 6 GB or more of memory translates a page in seconds; without one it works, but slowly. Chrome, Edge, Brave, Vivaldi, Opera or Firefox.</p></details>
+      <details><summary>Is anything uploaded?</summary><p>No. The extension downloads the page image from the site you're reading, exactly as your browser already does, and sends it to Ollama on your own computer. It has no analytics and no server of its own. Details in the <a href="privacy.html">privacy policy</a>.</p></details>
+      <details><summary>Why does it ask to read and change data on all websites?</summary><p>Comic readers load pages from many different image servers, so the extension needs permission to download those images and to put the translated page in place. It does nothing on a site until you turn it on there.</p></details>
+      <details><summary>How good are the translations?</summary><p>Good enough to follow the story comfortably, but they're machine translations. Clean scans with white speech bubbles work best; text drawn over busy artwork is sometimes left as it is rather than damaging the art.</p></details>
+      <details><summary>Does Pro run anything in the cloud?</summary><p>No. Pro only removes the daily limit; the translation still runs on your PC. Payments are handled by ExtensionPay and Stripe.</p></details>
+      <details><summary>Can I see the code?</summary><p>Yes. The source is on <a href="https://github.com/zzythe/local-manga-translator">GitHub</a> so you can check what it does. You may build it for your own use.</p></details>
+      <details><summary>I need help</summary><p>Open an issue on <a href="https://github.com/zzythe/local-manga-translator/issues">GitHub</a>.</p></details>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">Local Manga Translator by zzythe · <a href="privacy.html">Privacy</a> · <a href="https://github.com/zzythe/local-manga-translator">Source</a> · Sample comic: <a href="https://www.peppercarrot.com">Pepper&amp;Carrot</a> by David Revoy, CC BY 4.0</div>
+  </footer>
+
+  <script>
+    // Store links: filled in once the listings are live.
+    const STORES = {chrome: '', edge: '', firefox: ''};
+    for (const [key, url] of Object.entries(STORES)) {
+      const link = document.getElementById('get-' + key);
+      if (url) link.href = url; else link.hidden = !Object.values(STORES).some(Boolean) ? false : true;
+    }
+    const compare = document.getElementById('compare');
+    compare.querySelector('input').addEventListener('input', e => compare.style.setProperty('--split', e.target.value + '%'));
+  </script>
+</body>
+</html>
