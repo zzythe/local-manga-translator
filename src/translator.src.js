@@ -2146,7 +2146,8 @@
       const known = blocks.slice(), loose = [], skipped = [];
       const covered = r => known.some(b => overlap(expand(b, 0.15, W, H, b.typical * 0.5), r) > 0.3);
       for (const r of dedupe(regions)) {
-        if ((!r.detected && !bare(r.original)) || covered(r)) continue;
+        // Nothing read, a page number, or text a bubble scan already found.
+        if ((!r.detected && !bare(r.original)) || /^\d+$/.test(bare(r.original)) || covered(r)) continue;
         const found = scanAround(wctx, W, H, r, panels);
         if (found.length) { for (const b of found) if (!known.some(k => overlap(k, b) > 0.5)) known.push(b.extra ? b : {...b, region: r}); continue; }
         const item = planLoose(wctx, W, H, r);

@@ -6,7 +6,7 @@
 //     node build.mjs && node tools/quality/run.mjs [name-filter] [--source=Japanese] [--model=qwen3-vl:4b-instruct]
 //       [--out=out] [--unload] [--pause=30]   unload the model after each page, wait 30 s between pages
 import {chromium} from 'playwright-core';
-import {readFileSync, writeFileSync, mkdirSync, readdirSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync} from 'node:fs';
 import {join, dirname, extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -39,21 +39,23 @@ await page.route('http://quality.test/**', route => {
   return route.fulfill({contentType: type || 'application/octet-stream', body: readFileSync(join(here, 'pages', decodeURIComponent(path)))});
 });
 
-// --detector=path/to/detector.onnx: the local text detector, run here with onnxruntime-node.
-// --inpainter=path/to/migan_pipeline_v2.onnx: the local inpainting model, likewise.
+// The extension's helper models, run here with onnxruntime-node: by default from models/ when
+// they are there (see CHECKLIST.md), or --detector=… and --inpainter=…; --no-models runs without.
+const helper = (name, file) => args.includes('--no-models') ? '' : option(name) || (existsSync(join(here, 'models', file)) ? join(here, 'models', file) : '');
+const detectorFile = helper('detector', 'detector_int8.onnx'), inpainterFile = helper('inpainter', 'migan_pipeline_v2.onnx');
 let detector = null;
-if (option('inpainter')) {
+if (inpainterFile) {
   const ort = await import('onnxruntime-node');
   const {inpaintImage} = await import('data:text/javascript,' + encodeURIComponent(readFileSync(join(root, 'extension/text-detector.js'), 'utf8')));
-  const session = await ort.InferenceSession.create(option('inpainter'));
+  const session = await ort.InferenceSession.create(inpainterFile);
   await page.exposeFunction('inpaintImage', async (rgba, mask, w, h) =>
     Buffer.from(await inpaintImage(ort, session, Buffer.from(rgba, 'base64'), Buffer.from(mask, 'base64'), w, h)).toString('base64'));
 }
-if (option('detector')) {
+if (detectorFile) {
   const ort = await import('onnxruntime-node');
   // An ES module for the extension, in a CommonJS package: loaded from its source text.
   const {detectText} = await import('data:text/javascript,' + encodeURIComponent(readFileSync(join(root, 'extension/text-detector.js'), 'utf8')));
-  const session = await ort.InferenceSession.create(option('detector'));
+  const session = await ort.InferenceSession.create(detectorFile);
   detector = {ms: 0, run: (rgba, w, h) => detectText(ort, session, rgba, w, h)};
   await page.exposeFunction('detectText', async (data, w, h) => {
     const started = Date.now();
@@ -85,6 +87,7 @@ await page.evaluate(async () => {
   }
 });
 
+console.log(`Helper models: ${detectorFile ? 'detector' : 'no detector'}, ${inpainterFile ? 'inpainter' : 'no inpainter'}.`);
 const summary = [];
 for (const name of pages) {
   calls = [];
