@@ -2867,9 +2867,11 @@
         $('meter').classList.toggle('low', left <= Math.ceil(plan.limit / 6));
         $('pro').hidden = false;
         $('plan-text').textContent = `Free plan: ${plan.limit} pages a day`;
-        $('plan-button').textContent = 'Get unlimited';
+        // The meter above already has the buy button.
+        $('plan-button').hidden = true;
       } else {
         $('plan-text').textContent = 'Pro: unlimited pages';
+        $('plan-button').hidden = false;
         $('plan-button').textContent = 'Manage';
       }
     }
