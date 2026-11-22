@@ -365,6 +365,19 @@ test('sparkles in another colour beside an SFX are not erased with it', () => {
   assert.ok(plan.mask[48 * 200 + 61], 'lettering cleaned');
 });
 
+test('the blurred dots of an ellipsis after an SFX are erased, a sparkle of the art is not', () => {
+  const img = page(200, 100, [50, 35, 45]);
+  glyphs(img, 60, 40, 5, 1, [200, 225, 235]);
+  // Dots part-way from the background to the letters' colour, as a blurred dot is.
+  const dots = [[143, 50], [150, 50], [157, 50]], sparkle = [100, 32];
+  for (const [cx, cy] of dots) for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) set(img, cx + x, cy + y, [155, 168, 178]);
+  for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) set(img, sparkle[0] + x, sparkle[1] + y, [230, 210, 90]);
+  const plan = t.planLooseErase(img, {x: 58, y: 38, width: 104, height: 20});
+  assert.ok(plan);
+  for (const [cx, cy] of dots) assert.ok(plan.mask[cy * 200 + cx], `dot at ${cx},${cy} erased`);
+  assert.ok(!plan.mask[sparkle[1] * 200 + sparkle[0]], 'sparkle kept');
+});
+
 test('an artwork outline touching the first letter is cut off where it leaves the line of text', () => {
   const img = page(260, 160, [70, 60, 90]);
   glyphs(img, 70, 70, 8, 1, [225, 240, 250]);
