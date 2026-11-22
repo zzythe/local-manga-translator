@@ -152,7 +152,8 @@ try {
   // 5. At the daily limit, new pages wait and the control says why.
   await sw.evaluate(async () => {
     const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    await chrome.storage.local.set({usage: {day, count: CONFIG.freePagesPerDay}});
+    const {usage} = await chrome.storage.local.get('usage');
+    await chrome.storage.local.set({usage: {...usage, day, count: CONFIG.freePagesPerDay}});
   });
   const limited = await ctx.newPage();
   await limited.goto('http://127.0.0.1:8765/chapter-2');
@@ -163,14 +164,12 @@ try {
   check('limit reached: page left untranslated', !blockedState.src.startsWith('blob:'), blockedState.src.slice(0, 40));
   await limited.screenshot({path: join(out, 'limit.png')});
 
-  // 6. Pro unlocks it straight away.
-  await sw.evaluate(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
-  await limited.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 300000}).then(
-    () => check('Pro unlocks the waiting page', true), () => check('Pro unlocks the waiting page', false));
-
-  // 6b. Names entered on the sample page belong to it alone. (Changing them translates its pages
-  // again, so this comes after Pro.)
+  // 5b. Names entered on the sample page belong to it alone. Changing them translates its pages
+  // again, shown bubble by bubble in the page beside each image, and even at the limit they are
+  // translated and not counted again: they were counted today (before the reload, so the
+  // background has to know).
   await demo.bringToFront();
+  const before = await demo.evaluate(() => [...document.images].map(i => i.src));
   await demo.evaluate(() => {
     const root = document.querySelector('manga-translator').shadowRoot, terms = root.getElementById('terms');
     root.getElementById('names').open = true;
@@ -180,6 +179,20 @@ try {
   await demo.waitForTimeout(300);
   ({settings} = await sw.evaluate(() => chrome.storage.local.get('settings')));
   check('names are kept for this site only', JSON.stringify(settings.names) === JSON.stringify({[id]: 'テスト = Test'}), JSON.stringify(settings.names));
+  const early = await demo.waitForFunction(() => {
+    const b = document.querySelector('manga-translator-bubbles');
+    return b && [...document.images].some(i => i.parentNode === b.parentNode) && getComputedStyle(b).position === 'absolute';
+  }, null, {timeout: 300000, polling: 50}).then(() => true, () => false);
+  check('bubbles shown early, in the page beside the image', early);
+  const again = await demo.waitForFunction(old => [...document.images].every((i, k) => i.src.startsWith('blob:') && i.src !== old[k]) &&
+    !document.querySelector('manga-translator-bubbles'), before, {timeout: 300000}).then(() => true, () => false);
+  plan = await sw.evaluate(() => plan());
+  check('translated again at the limit with other names, not counted again', again && plan.used === plan.limit, JSON.stringify(plan));
+
+  // 6. Pro unlocks it straight away.
+  await sw.evaluate(() => chrome.storage.local.set({pro: {paid: true, checked: Date.now()}}));
+  await limited.waitForFunction(() => document.images[0]?.src.startsWith('blob:'), null, {timeout: 300000}).then(
+    () => check('Pro unlocks the waiting page', true), () => check('Pro unlocks the waiting page', false));
 
   // 7. Websites still can't use Ollama directly (the origin rule only covers the extension).
   // Use an ordinary website origin: Ollama always trusts pages served from 127.0.0.1 itself.

@@ -179,12 +179,21 @@ function pageCost({strip, aspect} = {}) {
   return Math.min(100, pages * CONFIG.stripPageWeight);
 }
 
+// A page translated again the same day (after changing a setting, or in another tab) is free.
 async function recordPage(image) {
   const {usage} = await chrome.storage.local.get('usage');
-  const day = today();
-  const count = Math.round(((usage?.day === day ? usage.count : 0) + pageCost(image)) * 100) / 100;
-  await chrome.storage.local.set({usage: {day, count}, lifetime: ((await chrome.storage.local.get('lifetime')).lifetime || 0) + 1});
+  const day = today(), fresh = usage?.day === day;
+  const seen = fresh && Array.isArray(usage.seen) ? usage.seen : [];
+  const id = typeof image?.id === 'string' ? image.id.slice(0, 600) : '';
+  if (id && seen.includes(id)) return plan();
+  const count = Math.round(((fresh ? usage.count : 0) + pageCost(image)) * 100) / 100;
+  await chrome.storage.local.set({usage: {day, count, seen: id ? [...seen, id].slice(-2000) : seen},
+    lifetime: ((await chrome.storage.local.get('lifetime')).lifetime || 0) + 1});
   return plan();
+}
+async function wasCounted(id) {
+  const {usage} = await chrome.storage.local.get('usage');
+  return {counted: typeof id === 'string' && usage?.day === today() && Array.isArray(usage.seen) && usage.seen.includes(id)};
 }
 
 // Straight to the Pro plan's checkout when it exists; otherwise ExtensionPay's plan page.
@@ -283,6 +292,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     case 'prepare-detector': return answer(toDetector({type: 'prepare'}));
     case 'plan': return answer(plan());
     case 'used': return answer(recordPage(message.image));
+    case 'counted': return answer(wasCounted(message.id));
     case 'refresh-pro': return answer(proStatus(true).then(() => plan()));
     case 'buy': return answer(openCheckout());
     case 'manage': case 'login': extpay.openLoginPage(); reply({ok: true}); return false;

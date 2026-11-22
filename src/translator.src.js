@@ -3018,6 +3018,7 @@
       return '#' + text.length + '-' + (h >>> 0).toString(36);
     };
     return {
+      hash,
       key: (s, url) => [visit(), s.source, s.target, s.model, s.uppercase ? 1 : 0, s.font, s.terms ? hash(s.terms) : '',
         url.length > 400 ? hash(url) : url].join('|'),
       get: key => run('readonly', store => store.get(key)),
@@ -3182,12 +3183,6 @@
     .more-body { display: grid; gap: 10px; padding-top: 10px; }
     .names textarea { margin-top: 6px; }
 
-    /* Bubbles lettered while the rest of the page is translated, over the page image. */
-    .overlay { position: absolute; overflow: hidden; }
-    .overlay[hidden] { display: none; }
-    .overlay-image { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-    .piece { position: absolute; }
-
     /* Per-image markers, top-right corner of each page. */
     .mark { position: absolute; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
       background: var(--paper); border: 2px solid var(--ink); pointer-events: auto; padding: 0;
@@ -3203,7 +3198,6 @@
 
   const HTML = `
     <div class="layer">
-      <div class="overlays"></div>
       <div class="marks"></div>
       <section class="bubble" role="region" aria-label="Manga translator">
         <div class="bar">
@@ -3279,13 +3273,14 @@
     const pages = new Map();  // img -> {source, status, url, nodes, showing, error, mark}
     let paused = false, stopped = false, showOriginals = false, ready = false, done = 0;
     const working = new Set(); // imgs being translated
+    const counted = new Set(); // page sources counted against the free plan in this tab
 
     const element = document.createElement('manga-translator');
     const root = element.attachShadow({mode: 'closed'});
     root.innerHTML = `<style>${CSS}</style>${HTML}`;
     document.documentElement.append(element);
     const $ = id => root.getElementById(id);
-    const marks = root.querySelector('.marks'), overlays = root.querySelector('.overlays');
+    const marks = root.querySelector('.marks');
 
     const say = (title, detail = '') => { $('title').textContent = title; $('detail').textContent = detail; };
     const progress = () => {
@@ -3598,12 +3593,19 @@
           page.note = cached.note || '';
           return;
         }
-        // Free plan: pages already translated (above) are free to show again; new ones count.
-        if (EXTENSION) {
+        // Free plan: pages already translated (above) are free to show again, and so is a page
+        // translated again today (other settings, other names); new ones count.
+        if (EXTENSION && !counted.has(page.source)) {
           const p = await refreshPlan();
           if (pages.get(img) !== page || stopped) return;
           // (A page being read ahead beside this one counts too.)
-          if (p && !p.pro && p.used + working.size - 1 >= p.limit) { page.status = 'limited'; blocked = true; return; }
+          if (p && !p.pro && p.used + working.size - 1 >= p.limit) {
+            // Counted earlier today, before a reload or in another tab.
+            const again = await background({type: 'counted', id: pageCache.hash(page.source)}).then(r => r?.counted === true, () => false);
+            if (pages.get(img) !== page || stopped) return;
+            if (!again) { page.status = 'limited'; blocked = true; return; }
+            counted.add(page.source);
+          }
         }
         say('Translating', 'Downloading the page…');
         const blob = await fetchBlob(page.source);
@@ -3622,14 +3624,17 @@
             result.canvas.width = result.canvas.height = 1;
             if (!out) throw new Error('The browser could not create the translated image.');
             apply(img, page, out);
-            // The bubbles shown early go once the finished page is on screen in their place.
+            // The bubbles shown early fade out once the finished page is on screen beneath them.
             const overlay = page.overlay;
             if (overlay) {
               (page.showing ? img.decode().catch(() => {}) : Promise.resolve())
-                .then(() => requestAnimationFrame(() => removeOverlay(page, overlay)));
+                .then(() => requestAnimationFrame(() => removeOverlay(page, overlay, true)));
             }
             page.status = 'done'; done++;
-            if (EXTENSION) background({type: 'used', image: {strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
+            if (EXTENSION && !counted.has(page.source)) {
+              counted.add(page.source);
+              background({type: 'used', image: {id: pageCache.hash(page.source), strip: inStrip(img, width, height), aspect: height / width}}).then(p => { if (p) { plan = p; renderPlan(); } }).catch(() => {});
+            }
             page.note = result.kept ? `${result.kept} sound effect${result.kept > 1 ? 's' : ''} on busy artwork left as drawn` : '';
             pageCache.put(key, {blob: out, note: page.note});
           } else {
@@ -3685,58 +3690,90 @@
     // Each bubble's translation, lettered on its cleaned patch of the page, fades in over the
     // image as soon as its line has been translated; the original stays until then. One element
     // per page holds them, in the image's own pixels, scaled onto the image wherever it is drawn.
+    // It sits in the page beside the image, so it scrolls with it, and whatever covers or crops
+    // the image (a sticky header, a scrolling frame) covers or crops it too.
     const fade = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
+    const OVERLAY_STYLE = 'all: initial !important; position: absolute !important; display: block !important; overflow: hidden !important; ' +
+      'pointer-events: none !important; left: 0 !important; top: 0 !important; width: 0 !important; height: 0 !important;';
     function addPiece(img, page, piece, width, height) {
       if (pages.get(img) !== page || stopped || page.status !== 'working') return;
       if (!page.overlay) {
-        const clip = document.createElement('div'), inner = document.createElement('div');
-        clip.className = 'overlay'; inner.className = 'overlay-image';
-        inner.style.width = `${width}px`; inner.style.height = `${height}px`;
-        clip.append(inner); overlays.append(clip);
-        page.overlay = {clip, inner, width, height, pieces: new Map()};
+        const host = document.createElement('manga-translator-bubbles'), shadow = host.attachShadow({mode: 'closed'});
+        host.style.cssText = OVERLAY_STYLE;
+        host.setAttribute('aria-hidden', 'true');
+        const inner = document.createElement('div');
+        inner.style.cssText = `position: absolute; left: 0; top: 0; transform-origin: 0 0; width: ${width}px; height: ${height}px;`;
+        shadow.append(inner);
+        page.overlay = {host, inner, width, height, pieces: new Map()};
+        placeOverlay(img, page.overlay);
         placeOverlays();
       }
       const {inner, pieces} = page.overlay, c = piece.canvas, old = pieces.get(piece.key);
-      c.className = 'piece';
-      c.style.left = `${piece.x}px`; c.style.top = `${piece.y}px`;
+      c.style.cssText = `position: absolute; left: ${piece.x}px; top: ${piece.y}px;`;
       inner.append(c);
       pieces.set(piece.key, c);
       if (fade) c.animate([{opacity: 0}, {opacity: 1}], {duration: fade, easing: 'ease-out'});
       if (old) setTimeout(() => old.remove(), fade + 50);
     }
-    function removeOverlay(page, overlay = page.overlay) {
+    // Gone at once, or faded out over the finished page now drawn beneath it.
+    function removeOverlay(page, overlay = page.overlay, slowly = false) {
       if (!overlay) return;
-      overlay.clip.remove();
       if (page.overlay === overlay) page.overlay = null;
+      const {host} = overlay;
+      if (!slowly || !fade || !host.isConnected || host.style.display === 'none') { host.remove(); return; }
+      host.animate([{opacity: 1}, {opacity: 0}], {duration: fade * 1.5, easing: 'ease-in', fill: 'forwards'})
+        .finished.catch(() => {}).then(() => host.remove());
     }
-    // Kept over the image every frame while there are any: scrolling, resizing and the site's
-    // own layout changes all move it.
+    // An object-position coordinate: a percentage of the free room, a length, or centred.
+    const objectOffset = (value, room) => {
+      const m = /^(-?[\d.]+)(%|px)$/.exec(value || '');
+      return !m ? room / 2 : m[2] === '%' ? room * m[1] / 100 : +m[1];
+    };
+    function placeOverlay(img, o) {
+      const {host} = o;
+      // In the box that holds the image (or its <picture>), last, so that the site's rules for
+      // neighbouring images (img + img, nth-child) still match them as before.
+      const box = (img.parentElement?.tagName === 'PICTURE' ? img.parentElement : img).parentNode;
+      if (!img.isConnected || !box) { host.remove(); return; }
+      if (host.parentNode !== box) box.append(host);
+      const cs = getComputedStyle(img), px = key => parseFloat(cs[key]) || 0;
+      const r = img.getBoundingClientRect();
+      const left = px('borderLeftWidth') + px('paddingLeft'), top = px('borderTopWidth') + px('paddingTop');
+      const w = r.width - left - px('borderRightWidth') - px('paddingRight'), h = r.height - top - px('borderBottomWidth') - px('paddingBottom');
+      const hidden = showOriginals || w <= 0 || h <= 0 || cs.visibility === 'hidden';
+      host.style.setProperty('display', hidden ? 'none' : 'block', 'important');
+      if (hidden) return;
+      // Above the image even when the site lifts the image (z-index).
+      host.style.setProperty('z-index', cs.position !== 'static' && cs.zIndex !== 'auto' ? cs.zIndex : 'auto', 'important');
+      // Where the picture is drawn inside the element (object-fit, object-position).
+      let sx = w / o.width, sy = h / o.height;
+      const fit = cs.objectFit;
+      if (fit === 'contain' || fit === 'cover' || fit === 'none' || fit === 'scale-down') {
+        let k = fit === 'cover' ? Math.max(sx, sy) : fit === 'none' ? 1 : Math.min(sx, sy);
+        if (fit === 'scale-down') k = Math.min(k, 1);
+        sx = sy = k;
+      }
+      const [ox, oy] = cs.objectPosition.split(/\s+/);
+      const dx = objectOffset(ox, w - o.width * sx), dy = objectOffset(oy, h - o.height * sy);
+      // Moved by the difference between where it is and where the image is, whatever box positions
+      // it, and in that box's units when the site scales the page (a zoomed reader).
+      const at = host.getBoundingClientRect();
+      const k = host.offsetWidth > 0 && at.width > 0 ? at.width / host.offsetWidth : 1;
+      const now = name => parseFloat(host.style.getPropertyValue(name)) || 0;
+      host.style.setProperty('left', `${now('left') + (r.left + left - at.left) / k}px`, 'important');
+      host.style.setProperty('top', `${now('top') + (r.top + top - at.top) / k}px`, 'important');
+      host.style.setProperty('width', `${Math.max(0, w) / k}px`, 'important');
+      host.style.setProperty('height', `${Math.max(0, h) / k}px`, 'important');
+      o.inner.style.transform = `scale(${1 / k}) translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    }
+    // Checked every frame while there are any: the site's own layout changes can move the image.
     let overlayFrame = 0;
     function placeOverlays() {
       if (overlayFrame) return;
       const step = () => {
         overlayFrame = 0;
         let any = false;
-        for (const [img, page] of pages) {
-          const o = page.overlay;
-          if (!o) continue;
-          any = true;
-          const r = img.getBoundingClientRect(), cs = getComputedStyle(img), px = key => parseFloat(cs[key]) || 0;
-          const left = px('borderLeftWidth') + px('paddingLeft'), top = px('borderTopWidth') + px('paddingTop');
-          const w = r.width - left - px('borderRightWidth') - px('paddingRight'), h = r.height - top - px('borderBottomWidth') - px('paddingBottom');
-          // Where the picture is drawn inside the element (object-fit), centred as by default.
-          let sx = w / o.width, sy = h / o.height;
-          const fit = cs.objectFit;
-          if (fit === 'contain' || fit === 'cover' || fit === 'none' || fit === 'scale-down') {
-            let k = fit === 'cover' ? Math.max(sx, sy) : fit === 'none' ? 1 : Math.min(sx, sy);
-            if (fit === 'scale-down') k = Math.min(k, 1);
-            sx = sy = k;
-          }
-          const dx = (w - o.width * sx) / 2, dy = (h - o.height * sy) / 2;
-          o.clip.hidden = showOriginals || !img.isConnected || w <= 0 || h <= 0 || cs.visibility === 'hidden';
-          Object.assign(o.clip.style, {left: `${r.left + left}px`, top: `${r.top + top}px`, width: `${Math.max(0, w)}px`, height: `${Math.max(0, h)}px`});
-          o.inner.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
-        }
+        for (const [img, page] of pages) if (page.overlay) { any = true; placeOverlay(img, page.overlay); }
         if (any) overlayFrame = requestAnimationFrame(step);
       };
       overlayFrame = requestAnimationFrame(step);
