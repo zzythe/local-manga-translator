@@ -418,6 +418,9 @@ test('known Japanese sound effects become English SFX, misread kana included', (
   assert.equal(t.knownSFX('ざぶん'), 'SPLASH');
   assert.equal(t.knownSFX('ザブーン！'), 'SPLASH');
   assert.equal(t.knownSFX('さぶん'), 'SPLASH', 'a lost dakuten');
+  assert.equal(t.knownSFX('どはどは'), 'GLUG GLUG', 'a lost dakuten in a repeated sound');
+  assert.equal(t.knownSFX('どばどば'), 'GLUG GLUG');
+  assert.equal(t.knownSFX('はらはら'), 'FLUTTER', 'a real word is not taken for another');
   assert.equal(t.knownSFX('シユウウ…'), 'FSSSH', 'big ユ for small ュ, drawn-out vowel');
   assert.equal(t.knownSFX('ぽたぽた'), 'DRIP DRIP');
   assert.equal(t.knownSFX('どばどば'), 'GLUG GLUG');
