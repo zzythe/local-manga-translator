@@ -16,6 +16,8 @@ const option = (name, fallback) => args.find(a => a.startsWith(`--${name}=`))?.s
 const filter = args.find(a => !a.startsWith('--')) || '';
 const model = option('model', 'qwen3-vl:4b-instruct'), source = option('source', 'Auto-detect');
 const outDir = join(here, option('out', 'out'));
+// --terms=terms.txt: the reader's names and terms (one per line, シチミ = Shichimi), as in settings.
+const terms = option('terms') ? readFileSync(join(here, option('terms')), 'utf8') : '';
 const unload = args.includes('--unload'), pause = Number(option('pause', 0));
 mkdirSync(outDir, {recursive: true});
 
@@ -63,7 +65,7 @@ const summary = [];
 for (const name of pages) {
   calls = [];
   const started = Date.now();
-  const result = await page.evaluate(async ({name, model, source}) => {
+  const result = await page.evaluate(async ({name, model, source, terms}) => {
     const M = globalThis.MLT;
     const env = {
       makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), {width: w, height: h}),
@@ -80,7 +82,7 @@ for (const name of pages) {
     // one; pages here are from different episodes, so context would only mislead.
     const pipeline = M.createPipeline(env);
     const job = {ask: async j => M.readChat(await globalThis.askOllama(M.chatPayload(model, j))), report: () => {}};
-    const out = await pipeline.translate(img, {source, target: 'English', uppercase: true}, job);
+    const out = await pipeline.translate(img, {source, target: 'English', uppercase: true, terms}, job);
     const translated = out.canvas || img;
     const side = document.createElement('canvas');
     side.width = img.width * 2 + 12; side.height = img.height;
@@ -91,7 +93,7 @@ for (const name of pages) {
     full.width = img.width; full.height = img.height; full.getContext('2d').drawImage(translated, 0, 0);
     return {png: full.toDataURL('image/png'), side: side.toDataURL('image/jpeg', 0.88), translated: out.translated, kept: out.kept,
       message: out.message || '', debug: out.debug || null, skipped: out.skipped || []};
-  }, {name, model, source});
+  }, {name, model, source, terms});
   const ms = Date.now() - started, base = name.replace(/\.[^.]+$/, '');
   writeFileSync(join(outDir, `${base}.png`), Buffer.from(result.png.split(',')[1], 'base64'));
   writeFileSync(join(outDir, `${base}-side.jpg`), Buffer.from(result.side.split(',')[1], 'base64'));

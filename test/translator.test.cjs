@@ -656,3 +656,13 @@ test('cleanTranslation: one line, no full stop after a sound effect, no dangling
   assert.equal(t.cleanTranslation('Be quiet,', 'おとなしく して', false), 'Be quiet');
   assert.equal(t.cleanTranslation('If we hurry,', '急げば、', false), 'If we hurry,', 'the original runs on');
 });
+
+test('the reader\'s names and terms go to the translator when their lines need them', () => {
+  const terms = t.parseTerms('シチミ = Shichimi\nリア → Rea\n  \nnot a term\nカイエン\tCayenne\n= nothing');
+  assert.deepEqual(terms.map(x => [x.from, x.to]), [['シチミ', 'Shichimi'], ['リア', 'Rea'], ['カイエン', 'Cayenne']]);
+  const used = t.termsIn(terms, ['シチミ？', 'ごめん もうすぐ リアが 切れそう']);
+  assert.deepEqual(used.map(x => x.to), ['Shichimi', 'Rea']);
+  const job = t.translationJob({source: 'Japanese', target: 'English'}, [{id: 0, original: 'シチミ？'}], [], false, used);
+  assert.deepEqual(JSON.parse(job.user).terms, [{original: 'シチミ', translation: 'Shichimi'}, {original: 'リア', translation: 'Rea'}]);
+  assert.ok(!('terms' in JSON.parse(t.translationJob({source: 'Japanese', target: 'English'}, [], [], false).user)));
+});

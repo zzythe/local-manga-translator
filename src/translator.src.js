@@ -1956,12 +1956,30 @@
       repeated(k => SFX_PLAIN.get(plainKana(k))) || '';
   }
 
-  function translationJob(s, lines, context, retry) {
+  /**
+   * The reader's names and terms, one per line: シチミ = Shichimi (also →, -> or a tab). Returns
+   * [{from, to}].
+   */
+  function parseTerms(text) {
+    const out = [];
+    for (const line of String(text || '').split(/\r?\n/)) {
+      const m = line.match(/^\s*(.+?)\s*(?:=|→|->|\t)\s*(.+?)\s*$/);
+      if (m && bare(m[1])) out.push({from: m[1], to: m[2]});
+    }
+    return out.slice(0, 300);
+  }
+  // The terms that appear in some of these originals.
+  const termsIn = (terms, originals) => {
+    const texts = originals.map(bare);
+    return terms.filter(t => texts.some(text => text.includes(bare(t.from))));
+  };
+
+  function translationJob(s, lines, context, retry, terms = []) {
     return {
       schema: object({translations: {type: 'array', items: object({id: {type: 'integer'}, text: TEXT, sfx: {type: 'boolean'}})}}),
       system: [
         `You translate comic lettering from ${/auto/i.test(s.source) ? 'its source language' : s.source} into ${s.target}. ${targetNotes(s.target)}`,
-        'Input is JSON: "lines" (id + original, in reading order; "art": true when the line is drawn on the artwork rather than in a bubble, as sound effects usually are) and optional "context" (earlier lines, already translated; do not return them).',
+        'Input is JSON: "lines" (id + original, in reading order; "art": true when the line is drawn on the artwork rather than in a bubble, as sound effects usually are) optional "context" (earlier lines, already translated; do not return them) and optional "terms" (the reader\'s own translations of names and words: use them exactly wherever they appear).',
         'Return exactly one translation for every id. Keep meaning, tone, personality, names and emphasis (!? …).',
         'Set sfx to true for a line that is only a sound effect or onomatopoeia, false for speech, thoughts and narration.',
         `A sound effect becomes the sound effect a professional ${s.target} comic letterer would draw for that sound, never a transliteration of the original:` +
@@ -1974,7 +1992,8 @@
         ADULT_NOTE,
         retry ? 'Your previous answer left some lines untranslated. Translate them fully now.' : ''
       ].filter(Boolean).join(' '),
-      user: JSON.stringify({lines, ...(context.length ? {context} : {})})
+      user: JSON.stringify({lines, ...(context.length ? {context} : {}),
+        ...(terms.length ? {terms: terms.map(t => ({original: t.from, translation: t.to}))} : {})})
     };
   }
 
@@ -2267,7 +2286,8 @@
     }
 
     async function translateReadings(readings, s, ask) {
-      const key = r => `${s.target}\u0000${r.original}`;
+      const terms = parseTerms(s.terms);
+      const key = r => `${s.target}\u0000${s.terms || ''}\u0000${r.original}`;
       for (const r of readings) if (memory.has(key(r))) Object.assign(r, memory.get(key(r)));
       // Known sound effects drawn on the artwork need no model call.
       if (languageInfo(s.target).code === 'en') {
@@ -2282,7 +2302,7 @@
         let data;
         try {
           data = await ask(translationJob(s, chunk.map((r, id) => ({id, original: r.original, ...(r.kind === 'loose' ? {art: true} : {})})),
-            recent.slice(-12), retry));
+            recent.slice(-12), retry, termsIn(terms, chunk.map(r => r.original))));
         } catch (error) {
           if (error.code === 'ABORT' || error.code === 'BLOCKED' || /^Ollama (stopped|took)/.test(error.message)) throw error;
           if (chunk.length === 1) return;
@@ -2441,7 +2461,7 @@
   }
 
   if (typeof document === 'undefined') {
-    if (typeof module !== 'undefined') module.exports = {tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
+    if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
       paintText, fitText, drawText, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
@@ -2567,7 +2587,7 @@
    * 8. Browser: settings, images and the floating control
    * ==================================================================================== */
 
-  const DEFAULTS = {source: 'Auto-detect', target: 'English', model: '', uppercase: true, sites: []};
+  const DEFAULTS = {source: 'Auto-detect', target: 'English', model: '', uppercase: true, sites: [], font: 'auto', terms: ''};
 
   // Settings storage. Extension storage is asynchronous, so a copy is loaded before anything starts.
   let storedSettings = null;
@@ -2653,7 +2673,8 @@
       return '#' + text.length + '-' + (h >>> 0).toString(36);
     };
     return {
-      key: (s, url) => [visit(), s.source, s.target, s.model, s.uppercase ? 1 : 0, url.length > 400 ? hash(url) : url].join('|'),
+      key: (s, url) => [visit(), s.source, s.target, s.model, s.uppercase ? 1 : 0, s.font, s.terms ? hash(s.terms) : '',
+        url.length > 400 ? hash(url) : url].join('|'),
       get: key => run('readonly', store => store.get(key)),
       put: (key, value) => run('readwrite', store => { store.put({...value, session, time: Date.now()}, key); }),
       purge: () => run('readwrite', store => {
@@ -2683,18 +2704,35 @@
     pause: () => new Promise(resolve => setTimeout(resolve, 0))
   };
 
-  // CC Wild Words is used for dialogue when installed; otherwise the bundled fonts.
-  async function loadLetteringFont() {
-    let wildWords = false;
-    try {
-      const local = new FontFace('MangaLettering', 'local("CCWildWords-Roman"), local("CCWildWords"), local("CCWildWords Roman")', {weight: '700'});
-      document.fonts.add(await local.load());
-      wildWords = true;
-    } catch {}
-    await Promise.all(letteringFonts().filter(f => !(wildWords && f.family === 'MangaLettering')).map(async f => {
-      const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-      document.fonts.add(await new FontFace(f.family, bytes.buffer, {weight: f.weight}).load());
-    }));
+  // Comic lettering fonts a reader may have installed, best first. Dialogue uses the chosen one
+  // ('auto': the first installed), else the bundled Comic Neue Bold. They can't be bundled.
+  const LOCAL_FONTS = [
+    {name: 'CC Wild Words', src: 'local("CCWildWords-Roman"), local("CCWildWords"), local("CCWildWords Roman"), local("CC Wild Words Roman")'},
+    {name: 'Anime Ace', src: 'local("AnimeAce3BB-Bold"), local("Anime Ace 3 BB Bold"), local("AnimeAce2.0BB-Bold"), local("Anime Ace 2.0 BB Bold"), ' +
+      'local("AnimeAce3BB-Regular"), local("Anime Ace 3 BB"), local("AnimeAce2.0BB"), local("Anime Ace 2.0 BB"), local("Anime Ace")'},
+    {name: 'CC Astro City', src: 'local("CCAstroCityInt-Regular"), local("CC Astro City Int"), local("CCAstroCity"), local("CC Astro City")'},
+    {name: 'Komika', src: 'local("KomikaAxis"), local("Komika Axis"), local("KomikaText-Bold"), local("Komika Text Bold"), local("KomikaText"), local("Komika Text")'},
+    {name: 'Digital Strip', src: 'local("DigitalStrip2.0BB"), local("Digital Strip 2.0 BB"), local("DigitalStripBB"), local("Digital Strip BB")'}
+  ];
+  let installedFonts = null;
+  // The installed lettering fonts: [{name, face}] (a loaded FontFace named MangaLettering).
+  async function findLocalFonts() {
+    installedFonts ??= Promise.all(LOCAL_FONTS.map(async f => {
+      try { return {name: f.name, face: await new FontFace('MangaLettering', f.src, {weight: '700'}).load()}; } catch { return null; }
+    })).then(list => list.filter(Boolean));
+    return installedFonts;
+  }
+  let bundledLoaded = null, dialogueFace = null;
+  async function loadLetteringFont(choice = 'auto') {
+    const installed = await findLocalFonts();
+    const local = choice === 'bundled' ? null : installed.find(f => choice === 'auto' || f.name === choice) || installed[0] || null;
+    const bundled = letteringFonts().map(f => ({...f, face: new FontFace(f.family, Uint8Array.from(atob(f.data), c => c.charCodeAt(0)).buffer, {weight: f.weight})}));
+    bundledLoaded ??= Promise.all(bundled.filter(f => f.family !== 'MangaLettering').map(async f => document.fonts.add(await f.face.load())));
+    await bundledLoaded;
+    if (dialogueFace) document.fonts.delete(dialogueFace);
+    dialogueFace = local ? local.face : await bundled.find(f => f.family === 'MangaLettering').face.load();
+    document.fonts.add(dialogueFace);
+    return installed.map(f => f.name);
   }
 
   const ICONS = {
@@ -2760,6 +2798,9 @@
     select { width: 100%; min-width: 0; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); padding: 5px 8px;
       font: 500 14px system-ui, "Segoe UI", sans-serif; }
     .check { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
+    .terms { display: grid; gap: 4px; font-size: 14px; }
+    textarea { width: 100%; min-width: 0; resize: vertical; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper);
+      padding: 5px 8px; color: inherit; font: 500 13px/1.4 system-ui, "Segoe UI", sans-serif; }
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex: none; }
 
     /* Per-image markers, top-right corner of each page. */
@@ -2798,7 +2839,10 @@
           <div class="field"><label for="target">Into</label><select id="target">${TARGET_LANGUAGES.map(v => `<option>${v}</option>`).join('')}</select></div>
           <div class="field"><label for="model">Model</label><select id="model"></select></div>
           <label class="check"><input type="checkbox" id="always"><span id="always-label">Always translate on this site</span></label>
+          <div class="field"><label for="font">Lettering</label><select id="font"><option value="auto">Best installed</option><option value="bundled">Comic Neue</option></select></div>
           <label class="check"><input type="checkbox" id="uppercase"><span>Letter in capitals (English, Spanish, Portuguese…)</span></label>
+          <label class="terms"><span>Names and terms, one per line</span>
+            <textarea id="terms" rows="3" spellcheck="false" placeholder="シチミ = Shichimi"></textarea></label>
         </div>
       </section>
     </div>`;
@@ -2830,7 +2874,7 @@
     remember(true);
     pageCache.purge();
     const pipeline = createPipeline(browserEnv);
-    const fontReady = loadLetteringFont().catch(() => {});
+    let fontReady = loadLetteringFont(settings.font).catch(() => []);
     const pages = new Map();  // img -> {source, status, url, nodes, showing, error, mark}
     let paused = false, stopped = false, busy = false, showOriginals = false, ready = false, done = 0;
     let current = null;       // img being translated
@@ -2854,17 +2898,26 @@
 
     $('source').value = settings.source; $('target').value = settings.target;
     $('uppercase').checked = settings.uppercase; $('always').checked = settings.sites.includes(host);
+    $('terms').value = settings.terms;
+    fontReady.then(names => {
+      $('font').append(...names.map(n => Object.assign(document.createElement('option'), {value: n, textContent: n})));
+      $('font').value = [...$('font').options].some(o => o.value === settings.font) ? settings.font : 'auto';
+    });
     $('always-label').textContent = `Always translate on ${host}`;
     const changed = () => {
-      const languageChanged = settings.source !== $('source').value || settings.target !== $('target').value || settings.model !== $('model').value;
+      const fontChanged = settings.font !== $('font').value;
+      const languageChanged = settings.source !== $('source').value || settings.target !== $('target').value || settings.model !== $('model').value ||
+        settings.terms !== $('terms').value || fontChanged;
       settings.source = $('source').value; settings.target = $('target').value; settings.uppercase = $('uppercase').checked;
+      settings.font = $('font').value; settings.terms = $('terms').value;
+      if (fontChanged) fontReady = loadLetteringFont(settings.font).catch(() => []);
       if ($('model').value) settings.model = $('model').value;
       settings.sites = settings.sites.filter(h => h !== host);
       if ($('always').checked) settings.sites.push(host);
       save();
       if (languageChanged) retranslateAll();
     };
-    for (const id of ['source', 'target', 'model', 'uppercase', 'always']) $(id).addEventListener('change', changed);
+    for (const id of ['source', 'target', 'model', 'uppercase', 'always', 'font', 'terms']) $(id).addEventListener('change', changed);
     $('gear').onclick = () => {
       const open = $('panel').hidden;
       $('panel').hidden = !open; $('gear').setAttribute('aria-expanded', String(open));
