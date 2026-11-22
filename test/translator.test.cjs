@@ -755,3 +755,52 @@ test('the language to translate into defaults to the browser\'s when it is a tar
     'uk-UA': 'English', 'nl': 'English', 'constructor': 'English', '': 'English', undefined: 'English'};
   for (const [tag, target] of Object.entries(cases)) assert.equal(t.browserTarget(tag === 'undefined' ? undefined : tag), target, tag);
 });
+
+test('a hole the size of a page is filled smoothly and quickly', () => {
+  const w = 900, h = 1200, img = page(w, h, [0, 0, 0]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) set(img, x, y, [Math.round(x * 255 / w), 80, Math.round(y * 255 / h)]);
+  const hole = new Uint8Array(w * h);
+  for (let y = 100; y < 1100; y++) for (let x = 100; x < 800; x++) hole[y * w + x] = 1;
+  const started = Date.now();
+  t.smoothFill(img.data, w, h, hole);
+  assert.ok(Date.now() - started < 5000, `${Date.now() - started} ms`);
+  // A gradient stays a gradient across the hole.
+  const at = (x, y) => img.data[(y * w + x) * 4];
+  assert.ok(Math.abs(at(450, 600) - 450 * 255 / w) < 20, String(at(450, 600)));
+  assert.ok(at(700, 600) > at(200, 600) + 100);
+});
+
+test('a large sound effect the eraser misses is kept, with its colour, slant and room beside it', () => {
+  // Dark navy art with lighter shapes, and thick black strokes running down to the right.
+  const w = 600, h = 600, img = page(w, h, [12, 22, 50]);
+  for (let y = 0; y < h; y += 40) for (let x = 0; x < w; x++) if ((x + y) % 97 < 30) set(img, x, y, [110, 130, 170]);
+  for (let k = 0; k < 5; k++) {
+    const x0 = 60 + k * 90, y0 = 50 + k * 90;
+    for (let s = 0; s < 120; s++) for (let d = -11; d <= 11; d++) { set(img, x0 + s + d, y0 + s - d, [0, 0, 0]); set(img, x0 + s + d + 1, y0 + s - d, [0, 0, 0]); }
+  }
+  const box = {x: 40, y: 30, width: 520, height: 520};
+  const missed = {mask: new Uint8Array(w * h), bounds: {x: 40, y: 30, width: 50, height: 50}};
+  assert.equal(t.eraseHolds(img, box, missed), false);
+  const plan = t.planBeside(img, box);
+  assert.ok(plan && plan.beside);
+  assert.equal(plan.color, '#000000');
+  assert.ok(Math.abs(plan.style.angle * 180 / Math.PI - 45) < 8, String(plan.style.angle));
+  assert.ok(plan.grid.data.some(v => v > 0.1) && plan.grid.data.some(v => v === 0));
+});
+
+test('a repaint that smooths detailed art into a smear does not hold', () => {
+  const w = 120, h = 120, before = page(w, h, [0, 0, 0]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) set(before, x, y, (x * 7 + y * 13) % 5 < 2 ? [200, 180, 160] : [40, 50, 60]);
+  const mask = new Uint8Array(w * h);
+  for (let y = 30; y < 90; y++) for (let x = 30; x < 90; x++) mask[y * w + x] = 1;
+  const smeared = new Uint8ClampedArray(before.data);
+  for (let i = 0; i < w * h; i++) if (mask[i]) smeared.set([100, 100, 100], i * 4);
+  assert.equal(t.repaintHolds(before.data, smeared, mask, w, h), false);
+  assert.equal(t.repaintHolds(before.data, before.data, mask, w, h), true);
+});
+
+test('drawn-out roars are known sound effects', () => {
+  assert.equal(t.knownSFX('グオオオン'), 'GROOOAR');
+  assert.equal(t.knownSFX('グアアアア'), 'GRAAAH');
+  assert.equal(t.knownSFX('フリフリ'), 'WIGGLE WIGGLE');
+});

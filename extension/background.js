@@ -290,6 +290,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   switch (message?.type) {
     case 'detect': case 'inpaint': return answer(toDetector(message));
     case 'prepare-detector': return answer(toDetector({type: 'prepare'}));
+    case 'detector-status': return answer(toDetector({type: 'status'}));
     case 'plan': return answer(plan());
     // The sample page (one of the extension's own pages) is free.
     case 'used': return answer(sender.url?.startsWith(chrome.runtime.getURL('')) ? plan() : recordPage(message.image));

@@ -8,27 +8,37 @@ import {detectText, inpaintImage} from './text-detector.js';
 const MODELS = {
   detector: {
     url: 'https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/16e8a622f91fabc6b5b65c96d32d1183f8843546/detector_int8.onnx',
-    sha256: 'b5022ad46416b6fe4f88b0cc082cfd2ff5b1cfc624088c2f19879485493f5913'
+    sha256: 'b5022ad46416b6fe4f88b0cc082cfd2ff5b1cfc624088c2f19879485493f5913', size: 44e6
   },
   inpainter: {
     url: 'https://huggingface.co/andraniksargsyan/migan/resolve/406830d0fa60666da0071c342ad2fbc8f30c5c64/migan_pipeline_v2.onnx',
-    sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b'
+    sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b', size: 28e6
   }
 };
 
 ort.env.wasm.wasmPaths = new URL('./ort/', import.meta.url).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2))) : 1;
 
-const state = Object.fromEntries(Object.keys(MODELS).map(name => [name, {session: null, loading: null, failed: 0}]));
+const state = Object.fromEntries(Object.keys(MODELS).map(name => [name, {session: null, loading: null, failed: 0, loaded: 0, total: MODELS[name].size}]));
 let runs = 0, repaints = 0;
 
-async function modelBytes({url, sha256}) {
+async function modelBytes({url, sha256}, progress) {
   const cache = await caches.open('mlt-models');
   const cached = await cache.match(url);
   if (cached) return new Uint8Array(await cached.arrayBuffer());
   const response = await fetch(url, {credentials: 'omit'});
   if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  // Read piece by piece, so the page can show how far the download is.
+  const total = Number(response.headers.get('content-length')) || 0, parts = [];
+  let loaded = 0;
+  for (const reader = response.body.getReader(); ;) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    parts.push(value); loaded += value.length;
+    progress(loaded, total);
+  }
+  const bytes = new Uint8Array(loaded);
+  for (let at = 0, k = 0; k < parts.length; at += parts[k].length, k++) bytes.set(parts[k], at);
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
   if (digest !== sha256) throw new Error('A downloaded model is damaged.');
   await cache.put(url, new Response(bytes));
@@ -40,7 +50,7 @@ function load(name) {
   const m = state[name];
   if (m.session) return Promise.resolve(m.session);
   if (!m.loading && Date.now() - m.failed > 60000) {
-    m.loading = modelBytes(MODELS[name]).then(bytes => ort.InferenceSession.create(bytes, {executionProviders: ['wasm']}))
+    m.loading = modelBytes(MODELS[name], (loaded, total) => { m.loaded = loaded; if (total) m.total = total; }).then(bytes => ort.InferenceSession.create(bytes, {executionProviders: ['wasm']}))
       .then(s => (m.session = s), error => { m.failed = Date.now(); throw error; })
       .finally(() => { m.loading = null; });
   }
@@ -67,8 +77,14 @@ const fromBase64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 //   model is still loading;
 // {type: 'inpaint', image (PNG data URL), mask (base64, a byte per pixel), width, height} →
 //   {pixels (base64 RGBA)}, or {pixels: null} while loading;
-// {type: 'prepare'} → {ready}; {type: 'stats'} → {ready, runs, repaints, threads}.
+// {type: 'prepare'} → {ready}; {type: 'stats'} → {ready, runs, repaints, threads};
+// {type: 'status'} → {ready, loading, loaded, total}: the download so far, in bytes.
 export async function handle(message) {
+  if (message.type === 'status') {
+    const all = Object.values(state);
+    return {ready: all.every(m => m.session), loading: all.some(m => m.loading),
+      loaded: all.reduce((a, m) => a + (m.session ? m.total : m.loaded), 0), total: all.reduce((a, m) => a + m.total, 0)};
+  }
   if (message.type === 'prepare') {
     return Promise.all(Object.keys(MODELS).map(load)).then(() => ({ready: true}), error => ({ready: false, error: String(error.message || error)}));
   }

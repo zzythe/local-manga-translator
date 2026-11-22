@@ -7,9 +7,10 @@
 //       [--out=out] [--unload] [--pause=30]   unload the model after each page, wait 30 s between pages
 //       [--concurrency=2]   after the first page, translate this many at once, as when reading ahead
 //       [--no-stream]       translate without streaming the answer (no bubbles shown early)
+//       [--pages=<folder>]  pages from another folder (pages that may not be kept in the repository)
 import {chromium} from 'playwright-core';
 import {readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync} from 'node:fs';
-import {join, dirname, extname} from 'node:path';
+import {join, dirname, extname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '../..');
@@ -17,7 +18,9 @@ const args = process.argv.slice(2);
 const option = (name, fallback) => args.find(a => a.startsWith(`--${name}=`))?.split('=')[1] ?? fallback;
 const filter = args.find(a => !a.startsWith('--')) || '';
 const model = option('model', 'qwen3-vl:4b-instruct'), source = option('source', 'Auto-detect');
-const outDir = join(here, option('out', 'out'));
+const outDir = resolve(here, option('out', 'out'));
+// --pages=<folder>: translate the pages in another folder (pages that can't be kept in the repo).
+const pagesDir = resolve(here, option('pages', 'pages'));
 // --terms=terms.txt: the reader's names and terms (one per line, シチミ = Shichimi), as in settings.
 const terms = option('terms') ? readFileSync(join(here, option('terms')), 'utf8') : '';
 const unload = args.includes('--unload'), pause = Number(option('pause', 0)), concurrency = Number(option('concurrency', 1));
@@ -30,7 +33,7 @@ const script = readFileSync(join(root, 'local-manga-translator.user.js'), 'utf8'
   .replace(/if \(typeof module !== 'undefined'\) module\.exports =/, 'globalThis.MLT =');
 if (!script.includes('globalThis.MLT =')) throw new Error('Could not expose the translator internals.');
 
-const pages = readdirSync(join(here, 'pages')).filter(f => /\.(jpe?g|png|webp)$/i.test(f) && f.includes(filter)).sort();
+const pages = readdirSync(pagesDir).filter(f => /\.(jpe?g|png|webp)$/i.test(f) && f.includes(filter)).sort();
 const browser = await chromium.launch({channel: 'msedge', headless: true});
 const page = await browser.newPage({viewport: {width: 1200, height: 900}});
 page.on('console', m => { if (m.type() === 'error') console.log('page:', m.text()); });
@@ -39,7 +42,7 @@ await page.route('http://quality.test/**', route => {
   if (path === '') return route.fulfill({contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><body></body>'});
   if (path === 'translator.js') return route.fulfill({contentType: 'text/javascript', body: script});
   const type = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp'}[extname(path).toLowerCase()];
-  return route.fulfill({contentType: type || 'application/octet-stream', body: readFileSync(join(here, 'pages', decodeURIComponent(path)))});
+  return route.fulfill({contentType: type || 'application/octet-stream', body: readFileSync(join(pagesDir, decodeURIComponent(path)))});
 });
 
 // The extension's helper models, run here with onnxruntime-node: by default from models/ when

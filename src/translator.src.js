@@ -1246,7 +1246,7 @@
       for (let y = Math.max(2, box.y - grow); y < Math.min(h - 2, box.y + box.height + grow); y++) {
         for (let x = Math.max(2, box.x - grow); x < Math.min(w - 2, box.x + box.width + grow); x++) hole[y * w + x] = 1;
       }
-      inpaint(ref, w, h, hole);
+      smoothFill(ref, w, h, hole);
     }
     // Lettering is the strongest contrast in the box; faint artwork (through a translucent bubble,
     // screentone, shading) sits well below it and is kept.
@@ -1561,6 +1561,153 @@
     return {mask, bounds, rows: {left, right}, solid, fill: [bg.r, bg.g, bg.b], background: bg.lum, color, outline, style: strokeStyle(seen50, w, h)};
   }
 
+  /* --- Large sound effects --------------------------------------------------------------
+   * A sound effect over this share of the page or more (a roar across a whole panel) is large.
+   * Over detailed artwork its erase and repaint are checked; when either falls short, the
+   * original is kept and the translation is lettered smaller beside it, as scanlators do with
+   * sound effects they can't redraw. The sound effects of ordinary pages cover under 1 %.
+   */
+  const LARGE_SFX = 0.04;
+
+  // The lettering of a large sound effect, told apart from the art by its colour: the darkest or
+  // the lightest 4 % of its box, whichever is more like ink (one even colour near black or
+  // white; a scene's shadows and highlights vary). top: those pixels; ink: every pixel of about
+  // their colour; inkC and bg: the lettering's colour and the usual colour of the box.
+  function extremeInk(img, box) {
+    const {data, width: w, height: h} = img, n = w * h;
+    const x0 = clamp(Math.round(box.x), 0, w), y0 = clamp(Math.round(box.y), 0, h);
+    const x1 = clamp(Math.round(box.x + box.width), 0, w), y1 = clamp(Math.round(box.y + box.height), 0, h);
+    const hist = new Uint32Array(256);
+    let total = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { hist[lumOf(data, (y * w + x) * 4)]++; total++; }
+    if (total < 100) return null;
+    const percentile = f => { let v = 0; for (let seen = hist[0]; v < 255 && seen < total * f;) seen += hist[++v]; return v; };
+    const low = percentile(0.04), high = percentile(0.96), median = percentile(0.5);
+    const sides = [{sign: -1, take: l => l <= low}, {sign: 1, take: l => l >= high}].map(side => {
+      const list = [];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (side.take(lumOf(data, i * 4))) list.push(i); }
+      const st = statsOf(data, list);
+      return {...side, list, st, score: st ? st.std + (side.sign < 0 ? st.lum : 255 - st.lum) : Infinity};
+    });
+    const side = sides[0].score <= sides[1].score ? sides[0] : sides[1], inkC = side.st;
+    const paper = [];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (Math.abs(lumOf(data, i * 4) - median) <= 10) paper.push(i); }
+    const bg = statsOf(data, paper);
+    if (!inkC || !bg) return null;
+    const dist = (i, c) => Math.abs(data[i * 4] - c.r) + Math.abs(data[i * 4 + 1] - c.g) + Math.abs(data[i * 4 + 2] - c.b);
+    const reach = Math.abs(inkC.r - bg.r) + Math.abs(inkC.g - bg.g) + Math.abs(inkC.b - bg.b);
+    if (reach < 60) return null;
+    const ink = new Uint8Array(n), top = new Uint8Array(n);
+    for (const i of side.list) top[i] = 1;
+    // Not the lettering: specks, and long straight bars (a panel border, the gutter).
+    const seen = new Uint8Array(n), stack = [], bw = x1 - x0, bh = y1 - y0;
+    for (const s of side.list) {
+      if (seen[s]) continue;
+      const part = [];
+      let ax = w, ay = h, bx = -1, by = -1;
+      seen[s] = 1; stack.push(s);
+      while (stack.length) {
+        const i = stack.pop(), x = i % w, y = (i / w) | 0;
+        part.push(i);
+        ax = Math.min(ax, x); bx = Math.max(bx, x); ay = Math.min(ay, y); by = Math.max(by, y);
+        for (const j of [x > x0 ? i - 1 : -1, x < x1 - 1 ? i + 1 : -1, y > y0 ? i - w : -1, y < y1 - 1 ? i + w : -1]) {
+          if (j >= 0 && top[j] && !seen[j]) { seen[j] = 1; stack.push(j); }
+        }
+      }
+      const pw = bx - ax + 1, ph = by - ay + 1;
+      if (part.length < 20 || (pw >= bw * 0.5 && ph <= bh * 0.05) || (ph >= bh * 0.5 && pw <= bw * 0.05)) for (const i of part) top[i] = 0;
+    }
+    let count = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = y * w + x;
+      if (dist(i, inkC) <= Math.max(30, reach * 0.4)) { ink[i] = 1; count++; }
+    }
+    return {ink, top, sign: side.sign, inkC, bg, reach, dist, count, x0, y0, x1, y1};
+  }
+
+  // Whether an erase plan takes the lettering of a large sound effect: at least half of its
+  // strongest pixels, without spreading far past its box.
+  function eraseHolds(img, box, plan) {
+    if (!plan) return false;
+    const e = extremeInk(img, box);
+    if (!e) return true;
+    let top = 0, hit = 0;
+    for (let i = 0; i < e.top.length; i++) if (e.top[i]) { top++; if (plan.mask[i]) hit++; }
+    const b = plan.bounds;
+    return hit >= top * 0.5 && b.width * b.height <= box.width * box.height * 2;
+  }
+
+  // Whether a repaint keeps the look of the art around it: not smoothed into a smear (far less
+  // fine detail than just outside) and with no seam at its edge. before and after: RGBA bytes.
+  function repaintHolds(before, after, mask, w, h) {
+    const n = w * h, lum = (d, i) => lumOf(d, i * 4);
+    const grad = (d, i) => (i % w < w - 1 && i + w < n ? Math.abs(lum(d, i) - lum(d, i + 1)) + Math.abs(lum(d, i) - lum(d, i + w)) : 0);
+    let near = mask;
+    for (let k = 0; k < 2; k++) near = dilate(near, w, h);
+    let far = near;
+    for (let k = 0; k < 5; k++) far = dilate(far, w, h);
+    let inside = 0, ins = 0, ring = 0, rings = 0, seam = 0, seams = 0;
+    for (let i = 0; i < n; i++) {
+      if (mask[i]) {
+        inside += grad(after, i); ins++;
+        const x = i % w;
+        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+          if (j >= 0 && j < n && !mask[j]) { seam += Math.abs(lum(after, i) - lum(before, j)); seams++; }
+        }
+      } else if (far[i] && !near[i]) { ring += grad(before, i); rings++; }
+    }
+    if (!ins || !rings) return true;
+    const around = ring / rings;
+    if (around > 6 && inside / ins < around * 0.35) return false;
+    return !seams || seam / seams <= Math.max(14, around * 2.5);
+  }
+
+  /**
+   * A large sound effect kept as drawn, to be translated beside it. `img` is the crop, `box` the
+   * model's box in it. Returns {beside, bounds, color, outline, blur, style, grid} or null: the
+   * lettering's colour, the outline round it (or null), how soft its edges are (pixels of blur),
+   * its direction and size (strokeStyle), and where its strokes are (grid.data: the share of
+   * each grid.cell-sized square covered), so the translation can go where it covers none.
+   */
+  function planBeside(img, box) {
+    const {data, width: w, height: h} = img;
+    const e = extremeInk(img, box);
+    if (!e || e.count < 50) return null;
+    const {ink, top, inkC, bg, reach, dist} = e;
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = e.y0; y < e.y1; y++) for (let x = e.x0; x < e.x1; x++) {
+      if (!top[y * w + x]) continue;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+    // Its direction and size from its strongest pixels: those are the strokes and little else.
+    const style = strokeStyle(top, w, h);
+    if (!style) return null;
+    // The outline: a rim round the strokes on the far side of the background from them.
+    const near = dilate(ink, w, h);
+    let far = near;
+    for (let k = 0; k < 3; k++) far = dilate(far, w, h);
+    const rim = [];
+    let soft = 0, edge = 0;
+    for (let y = e.y0; y < e.y1; y++) for (let x = e.x0; x < e.x1; x++) {
+      const i = y * w + x;
+      if (ink[i]) {
+        if (x > 0 && x < w - 1 && y > 0 && y < h - 1 && (!ink[i - 1] || !ink[i + 1] || !ink[i - w] || !ink[i + w])) edge++;
+        continue;
+      }
+      if (far[i] && !near[i]) rim.push(i);
+      // Blur: pixels part way between the strokes and the background, next to the strokes.
+      if (far[i] && dist(i, inkC) <= reach * 0.75) soft++;
+    }
+    const ring = statsOf(data, rim);
+    const outline = ring && Math.sign(ring.lum - bg.lum) === -Math.sign(inkC.lum - bg.lum) && Math.abs(ring.lum - bg.lum) >= 12
+      ? hex(ring.r, ring.g, ring.b) : null;
+    const cell = Math.max(4, Math.round(Math.min(w, h) / 60)), cols = Math.ceil(w / cell), rows = Math.ceil(h / cell);
+    const grid = new Float32Array(cols * rows);
+    for (let i = 0; i < ink.length; i++) if (ink[i]) grid[((i / w | 0) / cell | 0) * cols + ((i % w) / cell | 0)] += 1 / (cell * cell);
+    return {beside: true, bounds: {x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1}, color: hex(inkC.r, inkC.g, inkC.b),
+      outline, blur: edge ? soft / edge : 0, style, grid: {cell, cols, rows, data: grid}, fill: [bg.r, bg.g, bg.b], background: bg.lum};
+  }
+
   /**
    * Outlined lettering on busy artwork (white letters in a black rim, or the reverse): the letters
    * are the light (or dark) shapes whose whole edge is the opposite extreme, which hardly any
@@ -1798,12 +1945,63 @@
    *      each piece of the mask takes the detail of the nearest stretch of untouched pixels, so
    *      the rebuilt area has the same grain as the art around it instead of a blurry smear.
    */
+  // The smooth part of inpaint alone, for a background estimate. A large hole is filled at a
+  // smaller scale and scaled back up: the fill is smooth anyway, and a hole the size of a page
+  // takes half a minute at full size.
+  function smoothFill(data, w, h, hole, cells = 120000) {
+    let count = 0;
+    for (let i = 0; i < hole.length; i++) count += hole[i];
+    const f = Math.ceil(Math.sqrt(count / cells));
+    if (f <= 1) return inpaint(data, w, h, hole);
+    let depth = 0;
+    const sw = Math.ceil(w / f), sh = Math.ceil(h / f), small = new Uint8ClampedArray(sw * sh * 4), smallHole = new Uint8Array(sw * sh);
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+      let r = 0, g = 0, b = 0, c = 0, holes = 0, all = 0;
+      for (let yy = y * f; yy < Math.min(h, y * f + f); yy++) for (let xx = x * f; xx < Math.min(w, x * f + f); xx++) {
+        const i = yy * w + xx;
+        all++;
+        if (hole[i]) { holes++; continue; }
+        r += data[i * 4]; g += data[i * 4 + 1]; b += data[i * 4 + 2]; c++;
+      }
+      const k = y * sw + x;
+      if (holes * 2 >= all || !c) smallHole[k] = 1;
+      else { small[k * 4] = r / c; small[k * 4 + 1] = g / c; small[k * 4 + 2] = b / c; }
+      small[k * 4 + 3] = 255;
+    }
+    depth = inpaint(small, sw, sh, smallHole) * f;
+    // Bilinear, from the centres of the small pixels.
+    for (let y = 0; y < h; y++) {
+      const fy = clamp((y + 0.5) / f - 0.5, 0, sh - 1), y0 = Math.floor(fy), y1 = Math.min(sh - 1, y0 + 1), ty = fy - y0;
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (!hole[i]) continue;
+        const fx = clamp((x + 0.5) / f - 0.5, 0, sw - 1), x0 = Math.floor(fx), x1 = Math.min(sw - 1, x0 + 1), tx = fx - x0;
+        for (let c = 0; c < 3; c++) {
+          const a = small[(y0 * sw + x0) * 4 + c] * (1 - tx) + small[(y0 * sw + x1) * 4 + c] * tx;
+          const b = small[(y1 * sw + x0) * 4 + c] * (1 - tx) + small[(y1 * sw + x1) * 4 + c] * tx;
+          data[i * 4 + c] = a * (1 - ty) + b * ty;
+        }
+      }
+    }
+    return depth;
+  }
+
+  // Returns how thick the mask is (pixels from its edge to its middle).
   function inpaint(data, w, h, mask) {
     const n = w * h, index = new Int32Array(n).fill(-1), todo = [];
     for (let i = 0; i < n; i++) if (mask[i]) { index[i] = todo.length; todo.push(i); }
-    if (!todo.length) return;
+    if (!todo.length) return 0;
     const m = todo.length, val = new Float32Array(m * 3), known = new Uint8Array(n);
     for (let i = 0; i < n; i++) if (!mask[i]) known[i] = 1;
+    let depth = 0;
+    // A very large mask: the smooth part at a smaller scale (its cost grows with the mask's area
+    // times its thickness), the grain at full size as usual.
+    if (m > 150000) {
+      const base = new Uint8ClampedArray(data);
+      depth = smoothFill(base, w, h, mask, 30000);
+      for (let k = 0; k < m; k++) for (let c = 0; c < 3; c++) val[k * 3 + c] = base[todo[k] * 4 + c];
+    } else depth = harmonic();
+    function harmonic() {
     // Start from an outside-in fill; its peel count is how thick the mask is.
     let pending = todo.slice(), depth = 0;
     const set = new Uint8Array(n);
@@ -1852,16 +2050,30 @@
         val[k * 3] += omega * (r / c - val[k * 3]); val[k * 3 + 1] += omega * (g / c - val[k * 3 + 1]); val[k * 3 + 2] += omega * (b / c - val[k * 3 + 2]);
       }
     }
+    return depth;
+    }
     // Detail of the untouched pixels: each one minus the average of its untouched neighbours.
     const R = 2, detail = new Float32Array(n * 3), has = new Uint8Array(n);
     const band = Math.max(6, depth * 3 + 4);
-    // Only pixels near the mask are needed: mark them with a box around each masked pixel's row run.
-    const near = new Uint8Array(n);
-    for (const i of todo) {
-      const x = i % w, y = (i / w) | 0;
-      if (index[i - 1] >= 0 && x > 0 && index[i + 1] >= 0 && x < w - 1 && y > 0 && y < h - 1 && index[i - w] >= 0 && index[i + w] >= 0) continue;
-      for (let yy = Math.max(0, y - band); yy <= Math.min(h - 1, y + band); yy += 1) {
-        near.fill(1, yy * w + Math.max(0, x - band), yy * w + Math.min(w - 1, x + band) + 1);
+    // Only pixels within band of the mask are needed (a square around each masked pixel, made
+    // as a row pass and a column pass of running counts).
+    const rows = new Uint8Array(n), near = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      let run = 0;
+      for (let x = 0; x < Math.min(w, band); x++) run += mask[y * w + x] ? 1 : 0;
+      for (let x = 0; x < w; x++) {
+        if (x + band < w && mask[y * w + x + band]) run++;
+        if (x - band - 1 >= 0 && mask[y * w + x - band - 1]) run--;
+        if (run) rows[y * w + x] = 1;
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let run = 0;
+      for (let y = 0; y < Math.min(h, band); y++) run += rows[y * w + x];
+      for (let y = 0; y < h; y++) {
+        if (y + band < h) run += rows[(y + band) * w + x];
+        if (y - band - 1 >= 0) run -= rows[(y - band - 1) * w + x];
+        if (run) near[y * w + x] = 1;
       }
     }
     for (let i = 0; i < n; i++) {
@@ -1932,6 +2144,7 @@
       const p = todo[k] * 4;
       data[p] = val[k * 3]; data[p + 1] = val[k * 3 + 1]; data[p + 2] = val[k * 3 + 2];
     }
+    return depth;
   }
 
   /* ======================================================================================
@@ -2055,7 +2268,7 @@
     'ばくばく': 'THUMP THUMP', 'ぞく': 'SHIVER', 'ぶるぶる': 'TREMBLE', 'がたがた': 'RATTLE', 'ざわざわ': 'MURMUR MURMUR',
     'ひそひそ': 'WHISPER WHISPER', 'ずるずる': 'SLURP', 'もぐもぐ': 'MUNCH MUNCH', 'ぱく': 'CHOMP', 'ぽん': 'POP', 'すう': 'SHFF',
     'さ': 'SWISH', 'ひゅう': 'WHOOSH', 'びゅう': 'WHOOSH', 'ごう': 'ROAR', 'ばさ': 'FLAP', 'ぐう': 'GRRUMBLE', 'すやすや': 'ZZZ',
-    'こんこん': 'KNOCK KNOCK', 'とん': 'TAP', 'とんとん': 'TAP TAP', 'ちゅ': 'SMOOCH', 'ぎし': 'CREAK', 'ぎい': 'CREAK', 'ぼう': 'FWOOSH',
+    'ぐおん': 'GROOOAR', 'ぐお': 'GROAR', 'ぐあ': 'GRAAAH', 'ふり': 'WIGGLE', 'こんこん': 'KNOCK KNOCK', 'とん': 'TAP', 'とんとん': 'TAP TAP', 'ちゅ': 'SMOOCH', 'ぎし': 'CREAK', 'ぎい': 'CREAK', 'ぼう': 'FWOOSH',
     'ばちばち': 'CRACKLE', 'ぱちぱち': 'CLAP CLAP', 'びりびり': 'BZZZT', 'ぴく': 'TWITCH', 'びく': 'FLINCH', 'ずきずき': 'THROB',
     'くすくす': 'GIGGLE', 'げらげら': 'HA HA HA', 'じい': 'STARE', 'ちら': 'GLANCE', 'しいん': 'SILENCE', 'しん': 'SILENCE'
   };
@@ -2176,6 +2389,7 @@
     return deg >= 6 && deg <= 50 ? style.angle : 0;
   }
   const abortError = () => Object.assign(new Error('Stopped.'), {code: 'ABORT'});
+  const FINDING = 'Finding the text…';
 
   /**
    * env: {makeCanvas(w, h), encode(canvas, mime, quality) -> {mime, data}, pause?()}
@@ -2195,6 +2409,7 @@
       const panels = findPanels(wctx.getImageData(0, 0, W, H).data, W, H);
 
       // Scan every strip for bubble lettering; ask the model where all the lettering is meanwhile.
+      job.report(FINDING);
       const strips = tiles(W, H);
       if (strips.length > 40) throw new Error('This image is too tall to translate.');
       const detections = [], blocks = [];
@@ -2243,11 +2458,17 @@
       // Text the scan missed (grey, tinted, translucent or dark bubbles; text on the artwork): look
       // again around each model detection, with the paper colour measured there.
       const known = blocks.slice(), loose = [], skipped = [];
-      const covered = r => known.some(b => overlap(expand(b, 0.15, W, H, b.typical * 0.5), r) > 0.3);
+      // (A large sound effect's box can hold a bubble: it is the same text only when the bubble
+      // fills most of it.)
+      const large = r => r.width * r.height > W * H * LARGE_SFX;
+      const covered = r => known.some(b => {
+        const near = expand(b, 0.15, W, H, b.typical * 0.5);
+        return (large(r) ? coverage(r, near) : overlap(near, r)) > 0.3;
+      });
       for (const r of dedupe(regions)) {
         // Nothing read, a page number, or text a bubble scan already found.
         if ((!r.detected && !bare(r.original)) || /^\d+$/.test(bare(r.original)) || covered(r)) continue;
-        const found = scanAround(wctx, W, H, r, panels);
+        const found = large(r) ? [] : scanAround(wctx, W, H, r, panels);
         if (found.length) { for (const b of found) if (!known.some(k => overlap(k, b) > 0.5)) known.push(b.extra ? b : {...b, region: r}); continue; }
         const item = planLoose(wctx, W, H, r);
         if (item && !item.failed) loose.push(item);
@@ -2257,7 +2478,11 @@
 
       job.report('Reading the text…');
       const candidates = [...known, ...loose].slice(0, 150);
-      const texts = await readSheets(work, candidates, s, job.ask);
+      // A large sound effect is read from the page: alone on the sheet, its drawn-out vowels can
+      // keep the model repeating itself until Ollama stops it.
+      const onSheet = candidates.filter(c => !(c.large && c.region?.original));
+      const sheetTexts = await readSheets(work, onSheet, s, job.ask);
+      const texts = candidates.map(c => sheetTexts[onSheet.indexOf(c)] || '');
       const info = languageInfo(s.source);
       const items = [];
       candidates.forEach((c, i) => {
@@ -2289,8 +2514,16 @@
           const img = wctx.getImageData(e.x, e.y, e.width, e.height);
           // Lettering on the artwork: the inpainting model, when there is one, redraws the art
           // under it (bars, splashes, textures) far better than smoothing it over.
+          // A large sound effect left as drawn: nothing to clean.
+          if (r.plan?.beside) return {patch: null, box: null};
+          const before = r.large && !e.solid ? new Uint8ClampedArray(img.data) : null;
           const filled = r.kind === 'loose' && !e.solid && env.inpaint && await repaint(img, e.mask);
           if (!filled) applyErase(img, e);
+          // A large one over detailed art that came out smeared or patchy is kept instead.
+          if (before && !repaintHolds(before, img.data, e.mask, e.width, e.height)) {
+            const beside = planBeside({data: before, width: e.width, height: e.height}, r.inner);
+            if (beside) { r.plan = beside; return {patch: null, box: null}; }
+          }
           const patch = env.makeCanvas(e.width, e.height);
           patch.getContext('2d').putImageData(img, 0, 0);
           return {patch, box: e};
@@ -2317,12 +2550,13 @@
           const {patch, box} = await patchOf(r);
           const j = letterJob({...r, translation, sfx}, previewTypical);
           const plan = fitText(measure, j, s, image.width);
-          const area = [toImage(box)];
+          const area = patch ? [toImage(box)] : [];
           if (plan) area.push(letteringBounds(plan, j));
+          if (!area.length) return;
           const u = union(area), x = Math.floor(u.x), y = Math.floor(u.y);
           const piece = env.makeCanvas(Math.ceil(u.x + u.width) - x, Math.ceil(u.y + u.height) - y), g = piece.getContext('2d');
           g.translate(-x, -y);
-          g.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
+          if (patch) g.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
           if (plan) drawText(g, plan, j);
           if (translating && !job.stopped?.()) job.preview({key: r, canvas: piece, x, y});
         }).catch(() => {});
@@ -2339,7 +2573,7 @@
       octx.drawImage(image, 0, 0);
       for (const r of readings) {
         const {patch, box} = await patchOf(r);
-        octx.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
+        if (patch) octx.drawImage(patch, box.x / scale, box.y / scale, box.width / scale, box.height / scale);
       }
 
       // Letter.
@@ -2354,6 +2588,7 @@
             centre, maxSize: own * 1.05 / scale, font: DIALOGUE_FONT, color: r.erase.color, outline: null, source,
             anchor: {x: source.x + source.width / 2, y: r.enclosed && centre !== undefined ? centre : source.y + source.height / 2}};
         }
+        if (r.plan.beside) return besideJob(r, pageTypical);
         // Lettering on the artwork: where the original was, never wider than it (turned
         // horizontal) and never outside its panel.
         const {plan, crop} = r, t = {x: crop.x + plan.bounds.x, y: crop.y + plan.bounds.y, width: plan.bounds.width, height: plan.bounds.height};
@@ -2383,6 +2618,54 @@
           maxSize: size / scale, font, color: plan.color, outline: plan.outline, weight: sfx ? plan.style?.weight : undefined,
           source: toImage(t), anchor: {x: (t.x + t.width / 2) / scale, y: (t.y + t.height / 2) / scale}};
       }
+      // A large sound effect kept as drawn: its translation smaller, beside it where it covers
+      // none of its strokes, no bubble and nothing outside its panel, along its slant, in its
+      // colours and about as soft.
+      function besideJob(r, pageTypical) {
+        const {plan, crop} = r, st = plan.style, limit = 50 * Math.PI / 180;
+        const angle = Math.abs(st.angle) < 0.1 ? 0 : clamp(st.angle, -limit, limit);
+        const font = sfxFont(st.weight), glyph = Math.min(st.breadth, st.length);
+        const size = clamp(glyph * 0.16, (pageTypical || 14) * 1.3, W * 0.07);
+        measure.font = `${fontWeight(font)} ${size * fontScale(measure, font)}px ${font}`;
+        const bw = measure.measureText(String(r.translation).toUpperCase()).width + size * 0.8, bh = size * 1.6;
+        const cos = Math.cos(angle), sin = Math.sin(angle), cx = crop.x + st.cx, cy = crop.y + st.cy;
+        const panel = panelAt(panels, cx, cy) || {x: 0, y: 0, width: W, height: H};
+        const bubbles = readings.filter(o => o.kind !== 'loose'), g = plan.grid;
+        // How bad a spot is: the share of the text's area on strokes, off the panel or on a bubble.
+        const cost = (px, py) => {
+          let bad = 0, all = 0;
+          for (let a = -0.5; a <= 0.5; a += 0.125) for (let b = -0.5; b <= 0.5; b += 0.25) {
+            const x = px + a * bw * cos - b * bh * sin, y = py + a * bw * sin + b * bh * cos;
+            all++;
+            if (x < panel.x || y < panel.y || x >= panel.x + panel.width || y >= panel.y + panel.height) { bad += 2; continue; }
+            const gx = Math.floor((x - crop.x) / g.cell), gy = Math.floor((y - crop.y) / g.cell);
+            if (gx >= 0 && gy >= 0 && gx < g.cols && gy < g.rows && g.data[gy * g.cols + gx] > 0.1) bad++;
+            if (bubbles.some(o => x >= o.x && y >= o.y && x < o.x + o.width && y < o.y + o.height)) bad += 2;
+          }
+          return bad / all;
+        };
+        // Along the sound effect, near its start, and out to either side of it.
+        let best = null;
+        const span = st.length * 0.45, reach = st.breadth * 0.5 + bh, ac = Math.cos(st.angle), as = Math.sin(st.angle);
+        for (let t = -span; t <= span + 1e-6; t += span / 4) for (let o = 0; o <= reach; o += bh / 2) for (const side of [-1, 1]) {
+          const x = cx + t * ac - side * o * as, y = cy + t * as + side * o * ac;
+          const score = cost(x, y) * 4 + o / reach * 0.3 + (t + span) / (2 * span) * 0.2;
+          if (!best || score < best.score) best = {x, y, score};
+          if (!o) break;
+        }
+        // Over detailed art the letters need a rim to be read: the original's, made strong enough.
+        const lum = c => parseInt(c.slice(1, 3), 16) * 0.3 + parseInt(c.slice(3, 5), 16) * 0.59 + parseInt(c.slice(5, 7), 16) * 0.11;
+        let outline = plan.outline;
+        if (!outline || Math.abs(lum(outline) - plan.background) < 50) {
+          const k = clamp(plan.background + (lum(plan.color) < plan.background ? 70 : -70), 0, 255) - plan.background;
+          outline = hex(plan.fill[0] + k, plan.fill[1] + k, plan.fill[2] + k);
+        }
+        // As soft as the original, for letters this much smaller.
+        const blur = plan.blur * size / Math.max(size, glyph * 0.5) / scale;
+        return {r, text: r.translation, layout: toImage({x: best.x - bw / 2, y: best.y - bh / 2, width: bw, height: bh}), span: null,
+          maxSize: size / scale, font, color: plan.color, outline, weight: st.weight, blur,
+          rotate: angle ? {angle, cx: best.x / scale, cy: best.y / scale} : null};
+      }
       const plans = jobs.map(j => fitText(octx, j, s, image.width));
       // A roomy bubble does not get bigger lettering than its neighbours with the same original size.
       const sizes = plans.filter((p, i) => p && jobs[i].r.kind !== 'loose').map(p => p.size).sort((a, b) => a - b);
@@ -2403,6 +2686,7 @@
           lettered: j.rotate ? null : letteredBox(plan).map(Math.round), stagger: Math.round(Math.max(...plan.lines.map((_, k) => plan.rows[k].cx)) - Math.min(...plan.lines.map((_, k) => plan.rows[k].cx))), typical: Math.round((r.kind === 'loose' ? r.typical : j.own) / scale),
           room: Math.round(j.maxSize), ...(r.kind !== 'loose' ? {enclosed: !!r.enclosed} : {}),
           ...(r.region ? {region: [r.region.x, r.region.y, r.region.width, r.region.height].map(v => Math.round(v / scale))} : {}),
+          ...(r.plan?.beside ? {beside: true} : {}),
           ...(r.plan?.style ? {weight: +r.plan.style.weight.toFixed(3), slant: Math.round(r.plan.style.angle * 180 / Math.PI), font: plan.font.split(',')[0]} : {})});
         translated++;
       });
@@ -2437,11 +2721,15 @@
       const crop = cropAround(r, Math.round(10 + 0.6 * Math.max(r.width, r.height)), W, H);
       if (crop.width < 8 || crop.height < 8) return null;
       const img = wctx.getImageData(crop.x, crop.y, crop.width, crop.height), why = {};
-      const plan = planLooseErase(img, {x: r.x - crop.x, y: r.y - crop.y, width: r.width, height: r.height}, why);
+      const inner = {x: r.x - crop.x, y: r.y - crop.y, width: r.width, height: r.height};
+      let plan = planLooseErase(img, inner, why);
+      // A large sound effect over artwork the eraser can't take cleanly is kept as drawn.
+      const large = r.width * r.height > W * H * LARGE_SFX;
+      if (large && !plan?.solid && !eraseHolds(img, inner, plan)) plan = planBeside(img, inner) || plan;
       if (!plan) return {failed: why.reason};
       const b = plan.bounds;
       return {kind: 'loose', x: crop.x + b.x, y: crop.y + b.y, width: b.width, height: b.height,
-        typical: Math.max(8, Math.min(b.width, b.height)), plan, crop, region: r};
+        typical: Math.max(8, Math.min(b.width, b.height)), plan, crop, region: r, inner, large};
     }
 
     // Paste candidates onto numbered sheets and have the model read each one. Reading crops
@@ -2458,15 +2746,20 @@
         return {i, x, y, w, h, cw: Math.max(1, Math.round(w * zoom)), ch: Math.max(1, Math.round(h * zoom))};
       }).sort((a, b) => b.ch - a.ch);
       // Shelf packing into as many sheets as needed.
-      const sheets = [];
-      let sheet = null, cx = 0, cy = 0, rowH = 0;
-      for (const cell of cells) {
-        if (sheet && cx + LABEL + cell.cw > SHEET - GAP) { cx = GAP; cy += rowH + GAP; rowH = 0; }
-        if (!sheet || cy + cell.ch > MAX_SHEET_HEIGHT - GAP) { sheet = {cells: [], height: 0}; sheets.push(sheet); cx = GAP; cy = GAP; rowH = 0; }
-        cell.px = cx; cell.py = cy; sheet.cells.push(cell);
-        cx += LABEL + cell.cw + GAP; rowH = Math.max(rowH, cell.ch); sheet.height = cy + rowH + GAP;
-      }
-      await Promise.all(sheets.map(async sheet => {
+      const pack = list => {
+        const sheets = [];
+        let sheet = null, cx = 0, cy = 0, rowH = 0;
+        for (const cell of list) {
+          if (sheet && cx + LABEL + cell.cw > SHEET - GAP) { cx = GAP; cy += rowH + GAP; rowH = 0; }
+          if (!sheet || cy + cell.ch > MAX_SHEET_HEIGHT - GAP) { sheet = {cells: [], height: 0}; sheets.push(sheet); cx = GAP; cy = GAP; rowH = 0; }
+          cell.px = cx; cell.py = cy; sheet.cells.push(cell);
+          cx += LABEL + cell.cw + GAP; rowH = Math.max(rowH, cell.ch); sheet.height = cy + rowH + GAP;
+        }
+        return sheets;
+      };
+      // A sheet the model fails on (it can repeat a drawn-out sound effect until Ollama stops it)
+      // is read again in halves, so one crop costs only itself.
+      const read = list => Promise.all(pack(list).map(async sheet => {
         const c = env.makeCanvas(SHEET, sheet.height), g = c.getContext('2d');
         g.fillStyle = '#ffffff'; g.fillRect(0, 0, SHEET, sheet.height);
         g.imageSmoothingQuality = 'high';
@@ -2476,12 +2769,23 @@
           g.fillStyle = '#d0021b'; g.font = 'bold 28px Arial, sans-serif'; g.textBaseline = 'top';
           g.fillText(String(n + 1), cell.px, cell.py);
         });
-        const data = await ask(sheetJob(s, await env.encode(c, 'image/jpeg', 0.92), sheet.cells.length));
+        let data;
+        try {
+          data = await ask(sheetJob(s, await env.encode(c, 'image/jpeg', 0.92), sheet.cells.length));
+        } catch (error) {
+          if (error.code === 'ABORT' || error.code === 'BLOCKED' || /^Ollama (stopped|took)/.test(error.message)) throw error;
+          if (sheet.cells.length === 1) return;
+          const half = Math.ceil(sheet.cells.length / 2);
+          await read(sheet.cells.slice(0, half));
+          await read(sheet.cells.slice(half));
+          return;
+        }
         for (const item of data.items || []) {
           const cell = sheet.cells[Number(item.n) - 1];
           if (cell) texts[cell.i] = String(item.text || '').trim();
         }
       }));
+      await read(cells);
       return texts;
     }
 
@@ -2739,6 +3043,8 @@
     const each = paint => plan.lines.forEach((line, i) => paint(line, plan.rows[i].cx, plan.first + i * step + drop, plan.rows[i].width));
     // Lettering heavier than the font: thicken every stroke by the difference (capitals are 0.72
     // of the size).
+    // Soft like the original (a blurred sound effect).
+    if (style.blur >= 0.8) ctx.filter = `blur(${Math.min(plan.size * 0.05, style.blur * 0.6).toFixed(2)}px)`;
     const own = SFX_WEIGHTS.get(plan.font), extra = own && style.weight > own ? Math.min(plan.size * 0.1, (style.weight - own) * plan.size * 0.72) : 0;
     if (style.outline) {
       ctx.strokeStyle = style.outline; ctx.lineWidth = Math.max(2, plan.size * 0.16) + extra;
@@ -2761,7 +3067,7 @@
 
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
-      planLooseErase, planColourErase, planOutlinedErase, applyErase, inpaint, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
+      planLooseErase, planColourErase, planOutlinedErase, planBeside, eraseHolds, repaintHolds, extremeInk, LARGE_SFX, applyErase, inpaint, smoothFill, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
       paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
       browserTarget, paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;
@@ -3444,8 +3750,32 @@
       ready = true; startButton.hidden = true;
       // Load the model into memory now, while the first page downloads; loading takes seconds.
       // With the same options as every call: a different num_ctx would load it a second time.
-      ollamaJSON('/api/chat', {model: settings.model, messages: [], keep_alive: '30m', options: OLLAMA_OPTIONS}, 120000).catch(() => {});
+      warming = ollamaJSON('/api/chat', {model: settings.model, messages: [], keep_alive: '30m', options: OLLAMA_OPTIONS}, 120000)
+        .catch(() => {}).finally(() => { warming = null; });
       sweep(); pump();
+    }
+
+    // The model loading into memory (after connect), and the helper models downloading or
+    // loading (first use): both are said on the status line, since the first page waits for them.
+    let warming = null, helpers = null;
+    // The helper models find the text on a page in about a second; the model alone takes far
+    // longer than their download (72 MB, once), so the first page waits for them.
+    function helpersReady() {
+      if (!EXTENSION) return Promise.resolve();
+      return helpers ||= (async () => {
+        let status = await background({type: 'detector-status'}).catch(() => null);
+        if (!status || status.ready) return;
+        let finished = false;
+        const prepared = background({type: 'prepare-detector'}).catch(() => null).finally(() => { finished = true; });
+        for (const started = Date.now(); !finished && !stopped && Date.now() - started < 180000;) {
+          status = await background({type: 'detector-status'}).catch(() => null);
+          if (status?.total && !status.ready && !finished) {
+            const mb = Math.round(status.total / 1e6), pct = Math.min(99, Math.floor(100 * status.loaded / status.total));
+            say('Getting ready', status.loaded < status.total ? `Downloading helper models (${mb} MB): ${pct} %` : 'Loading helper models…');
+          }
+          await Promise.race([prepared, sleep(500)]);
+        }
+      })();
     }
 
     // onText: stream the answer, hearing each piece of it as it arrives.
@@ -3609,15 +3939,23 @@
             counted.add(page.source);
           }
         }
+        const download = fetchBlob(page.source);
+        download.catch(() => {});
+        await helpersReady();
+        if (pages.get(img) !== page || stopped) return;
         say('Translating', 'Downloading the page…');
-        const blob = await fetchBlob(page.source);
+        const blob = await download;
         if (blob.size > MAX_BYTES) throw new Error('The image is larger than 30 MB.');
         const bitmap = await createImageBitmap(blob), {width, height} = bitmap;
         try {
           if (bitmap.width * bitmap.height > MAX_PIXELS) throw new Error('The image is too large.');
           await fontReady;
+          // While the model is still loading, that is what the first page waits for.
+          let last = '';
+          const report = text => { last = text; say('Translating', warming && text === FINDING ? 'Loading the model into memory…' : text); };
+          warming?.then(() => { if (last === FINDING && !stopped && pages.get(img) === page) say('Translating', FINDING); });
           const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
-            report: text => say('Translating', text), stopped: () => stopped || pages.get(img) !== page,
+            report, stopped: () => stopped || pages.get(img) !== page,
             preview: piece => addPiece(img, page, piece, width, height)});
           if (pages.get(img) !== page) return;
           if (result.canvas) {
