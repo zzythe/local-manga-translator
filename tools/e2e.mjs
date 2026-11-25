@@ -28,6 +28,21 @@ const site = createServer((req, res) => {
   const images = req.url.startsWith('/strip') ? ['strip-a.jpg', 'strip-b.jpg'] : [`page-${sub}${req.url.replace(/\W/g, '-')}.jpg`];
   // /reader/N: one page per address, with a link to the next page (and one to the next chapter).
   const n = +(/^\/reader\/(\d+)$/.exec(req.url)?.[1] || 0);
+  // /swap/N: like e-hentai, one page per address, but Next puts the next page's picture in a new
+  // element in this same document (and changes the address) instead of loading it.
+  const e = +(/^\/swap\/(\d+)$/.exec(req.url)?.[1] || 0);
+  if (e) return res.end(`<!doctype html><title>Swap</title><body style="margin:0;background:#111"><div id="i3"><a href="/swap/${e + 1}"><img id="img"
+    src="http://localhost:8766/page-127-swap-${e}.jpg" style="display:block;width:900px;margin:0 auto"></a></div><a id="next" href="/swap/${e + 1}" style="color:#fff">Next ›</a>
+    <script>
+      let at = ${e};
+      document.addEventListener('click', ev => {
+        if (!ev.target.closest('#next, #i3 a')) return;
+        ev.preventDefault(); at++;
+        history.pushState({}, '', '/swap/' + at);
+        document.getElementById('i3').innerHTML = '<a href="/swap/' + (at + 1) + '"><img id="img" src="http://localhost:8766/page-127-swap-' + at + '.jpg" style="display:block;width:900px;margin:0 auto"></a>';
+        document.getElementById('next').href = '/swap/' + (at + 1);
+      });
+    </script></body>`);
   const nav = n ? `<nav style="text-align:center"><a href="/reader-2/1" style="color:#fff">Next chapter</a> · <a href="/reader/${n + 1}" style="color:#fff">Next ›</a></nav>` : '';
   res.end(`<!doctype html><title>Reader</title><body style="margin:0;background:#111"><main>
     ${images.map(i => `<img src="http://localhost:8766/${i}" style="display:block;width:900px;margin:0 auto">`).join('')}</main>${nav}</body>`);
@@ -266,6 +281,35 @@ try {
   check('next page shown translated at once after clicking Next, counted once shown', shownAhead && aheadTime < 6 && await used() === before4f + 2,
     `${aheadTime.toFixed(1)} s, used ${await used()}`);
   await paged.screenshot({path: join(out, 'read-ahead.png')});
+
+  // 4f2. A reader that swaps in the next page's picture (e-hentai), with Next clicked while that
+  // page is still being translated ahead: its translation is waited for, not started again.
+  const swapPage = await ctx.newPage();
+  await swapPage.goto('http://127.0.0.1:8765/swap/1');
+  check('swap reader: page 1 translated', await translated(swapPage));
+  const runsBefore = await (async () => {
+    for (const end = Date.now() + 120000; Date.now() < end; await swapPage.waitForTimeout(100)) {
+      if (pageLog.some(l => l.url === '/swap/2')) return (await sw.evaluate(() => toDetector({type: 'stats'}))).runs;
+    }
+    return null;
+  })();
+  const tSwap = Date.now();
+  await swapPage.click('#next');
+  const swapShown = await translated(swapPage, 120000);
+  const swapRuns = (await sw.evaluate(() => toDetector({type: 'stats'}))).runs - runsBefore;
+  check('swap reader: Next clicked while that page was read ahead, shown once its translation finished, not translated twice',
+    runsBefore != null && swapShown && swapRuns <= 1 && await swapPage.evaluate(() => location.pathname === '/swap/2'),
+    `${((Date.now() - tSwap) / 1000).toFixed(1)} s, detector runs ${swapRuns}`);
+  // Next clicked straight away, while the page on screen is still being translated: the new page
+  // is not kept waiting behind the old one.
+  await swapPage.waitForTimeout(500);
+  await swapPage.click('#next');
+  await swapPage.waitForTimeout(1500);
+  const tQuick = Date.now();
+  await swapPage.click('#next');
+  const quickShown = await swapPage.waitForFunction(() => document.getElementById('img').src.startsWith('blob:') && location.pathname === '/swap/4', null, {timeout: 120000}).then(() => true, () => false);
+  check('swap reader: moving on mid-page, the new page is translated', quickShown, `${((Date.now() - tQuick) / 1000).toFixed(1)} s`);
+  await swapPage.close();
 
   // 4g. Save image, beside the page's mark.
   const download = paged.waitForEvent('download', {timeout: 10000}).catch(() => null);

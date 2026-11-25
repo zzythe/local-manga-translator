@@ -3753,10 +3753,12 @@
   // arrives. Returns the whole answer as /api/chat without streaming would.
   // With a guard (loopGuard), an answer that starts repeating itself is stopped there, which also
   // stops Ollama working on it, and what came before the loop is returned instead.
-  async function ollamaChatStream(payload, timeout, onText, guard) {
+  // wanted(), when given, is asked as the answer comes in: once it says no, the request stops.
+  async function ollamaChatStream(payload, timeout, onText, guard, wanted) {
     let pending = '', looped = false, handle = null;
     const onChunk = chunk => {
       if (looped) return;
+      if (wanted && !wanted()) { try { handle?.abort(); } catch {} return; }
       const lines = (pending + chunk).split('\n');
       pending = lines.pop();
       for (const line of lines) {
@@ -4425,12 +4427,12 @@
     }
 
     // onText: stream the answer, hearing each piece of it as it arrives.
-    async function ask(job, onText) {
+    async function ask(job, onText, wanted = () => true) {
       for (let attempt = 0; ; attempt++) {
-        if (stopped) throw abortError();
+        if (stopped || !wanted()) throw abortError();
         try {
           // Every answer streams in, so one that starts repeating itself is stopped early.
-          return readChat(await ollamaChatStream(chatPayload(settings.model, job, true), 300000, onText, loopGuard(job.schema)));
+          return readChat(await ollamaChatStream(chatPayload(settings.model, job, true), 300000, onText, loopGuard(job.schema), wanted));
         } catch (error) {
           if (error.code === 'NETWORK' && attempt === 0) {
             launchOllama();
@@ -4546,7 +4548,8 @@
     // Pages on screen first (0), then those below, then those above; pages of other addresses
     // (read ahead) last.
     function distanceOf(img) {
-      if (!img) return Infinity;
+      // Read ahead (no picture), or a picture the site has replaced: behind every page shown.
+      if (!img || !img.isConnected) return Infinity;
       const r = img.getBoundingClientRect();
       return r.bottom < 0 ? -r.bottom * 1.5 + 1 : r.top > innerHeight ? r.top - innerHeight + 1 : 0;
     }
@@ -4635,7 +4638,9 @@
         if (img) warming?.then(() => { if (last === FINDING && isCurrent()) say('Translating', FINDING); });
         // The status line said how the helper models were coming on: the page's own progress again.
         if (img) helpers.then(() => { if (last && isCurrent()) report(last); });
-        const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => ask(job, onText)),
+        // A call still waiting its turn is dropped, and one under way stopped, once the page is no
+        // longer wanted (the reader moved on): the page now shown is not kept waiting behind it.
+        const result = await pipeline.translate(bitmap, settings, {ask: (job, onText) => inTurn(img, () => isCurrent() ? ask(job, onText, isCurrent) : Promise.reject(abortError())),
           report, stopped: () => !isCurrent(), preview: onPreview && (piece => onPreview(piece, width, height))});
         if (!isCurrent()) throw abortError();
         if (!result.canvas) return {blob: null, note: result.message};
@@ -4656,7 +4661,11 @@
       const isCurrent = () => !stopped && pages.get(img) === page;
       try {
         // Finished before (a reload, going back, or read ahead): shown at once. It counts when seen.
+        // Still being read ahead (the reader moved on to it meanwhile): that is waited for, rather
+        // than started again.
         const key = pageCache.key(settings, page.source);
+        const ahead = nextPages.pending.get(page.source);
+        if (ahead) { say('Translating', 'Finishing this page…'); await ahead.catch(() => {}); }
         const cached = await pageCache.get(key);
         if (!isCurrent()) return;
         if (cached) {
@@ -4712,7 +4721,7 @@
     // their pages with scripts have no picture in the next page's HTML; those are translated
     // when they arrive.
     const nextPages = (() => {
-      const pending = new Set(), tried = new Set();
+      const pending = new Map(), tried = new Set();  // pending: source -> its translation under way
       let running = false;
       // The page's main picture: the largest one on screen.
       const mainImage = () => {
@@ -4727,12 +4736,13 @@
       async function translateAhead(source) {
         const key = pageCache.key(settings, source);
         if (pageCache.has(key) || pending.has(source)) return;
-        pending.add(source);
-        try {
+        const work = (async () => {
           if (await pageCache.get(key)) return;
           const {blob, note} = await translateImage(source, null, () => !stopped && !paused);
           pageCache.put(key, {blob, note});
-        } finally { pending.delete(source); }
+        })();
+        pending.set(source, work);
+        try { await work; } finally { pending.delete(source); }
       }
       async function run() {
         if (running || stopped || paused || !ready || blocked || !WEB) return;
