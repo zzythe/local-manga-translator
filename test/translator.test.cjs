@@ -909,3 +909,54 @@ test('the extension warms Ollama up with the options of its requests, so the mod
   assert.ok(literal, 'OLLAMA_OPTIONS in background.js');
   assert.deepEqual(Function(`return ${literal}`)(), t.chatPayload('m', {system: '', user: ''}).options);
 });
+
+// ---------- answers that repeat themselves ----------
+const feed = (guard, text, size = 7) => { for (let i = 0; i < text.length; i += size) if (guard.push(text.slice(i, i + size))) return i; return -1; };
+
+test('an answer stuck on one kana is stopped, keeping the items before it', () => {
+  const g = t.loopGuard(t.detectionJob({source: 'Japanese'}, 'x').schema);
+  const answer = '{"items":[{"text":"なに？","box":[10,10,90,60]},{"text":"' + 'ッ'.repeat(3000);
+  const at = feed(g, answer);
+  assert.ok(at > 0 && at < 400, `stopped at ${at}`);
+  assert.deepEqual(g.salvage(), {items: [{text: 'なに？', box: [10, 10, 90, 60]}]});
+});
+
+test('the same words found again and again with other boxes are stopped, the first kept', () => {
+  const g = t.loopGuard(t.detectionJob({source: 'Japanese'}, 'x').schema);
+  let answer = '{"items":[{"text":"おはよう","box":[1,1,50,20]}';
+  for (let i = 0; i < 40; i++) answer += `,{"text":"あっ","box":[${100 + i * 7},${200 + i * 3},${130 + i * 7},${230 + i * 3}]}`;
+  assert.ok(feed(g, answer + ']}') > 0);
+  assert.deepEqual(g.salvage().items.map(i => i.text), ['おはよう', 'あっ']);
+});
+
+test('blank lines forever are stopped; an answer without a list has nothing to keep', () => {
+  const g = t.loopGuard({type: 'object', properties: {text: {type: 'string'}}});
+  assert.ok(feed(g, '{"text":"ドン"' + '\n'.repeat(600)) > 0);
+  assert.equal(g.salvage(), null);
+});
+
+test('ordinary answers are never stopped', () => {
+  const detect = t.loopGuard(t.detectionJob({source: 'Japanese'}, 'x').schema);
+  let a = '{"items":[';
+  for (let i = 0; i < 60; i++) a += (i ? ',' : '') + `{"text":"せりふ${i}です","box":[${i * 11 % 900},${i * 37 % 900},${i * 11 % 900 + 60},${i * 37 % 900 + 40}]}`;
+  assert.equal(feed(detect, a + ']}'), -1);
+  // Many lines that read the same (moans), each its own id.
+  const tr = t.loopGuard(t.translationJob({source: 'Japanese', target: 'English'}, [], [], false).schema);
+  let b = '{"translations":[';
+  for (let i = 0; i < 30; i++) b += (i ? ',' : '') + `{"id":${i},"text":"Ah!","sfx":false}`;
+  assert.equal(feed(tr, b + ']}'), -1);
+  // A sheet whose frames hold nothing.
+  const sheet = t.loopGuard(t.sheetJob({source: 'Japanese'}, 'x', 40).schema);
+  let c = '{"items":[';
+  for (let i = 1; i <= 40; i++) c += (i > 1 ? ',' : '') + `{"n":${i},"text":""}`;
+  assert.equal(feed(sheet, c + ']}'), -1);
+  // A long drawn-out sound is not a loop.
+  assert.equal(t.repeatsAtEnd('{"items":[{"text":"ドオオオオオオオオオオオオオオオン！！","box":[1,2,3,4]}]}'), false);
+});
+
+test('a translation answer is limited to about three times what it needs', () => {
+  const job = t.translationJob({source: 'Japanese', target: 'English'}, [{id: 0, original: 'こんにちは'}, {id: 1, original: 'ドン'}], [], false);
+  assert.equal(job.predict, 256 + (24 + 15) + (24 + 6));
+  const many = Array.from({length: 60}, (_, id) => ({id, original: 'あ'.repeat(40)}));
+  assert.equal(t.translationJob({source: 'Japanese', target: 'English'}, many, [], false).predict, 4096);
+});

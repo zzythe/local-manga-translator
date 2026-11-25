@@ -2441,6 +2441,52 @@
     return last ? {...last, message: {...last.message, content}} : null;
   }
 
+  /**
+   * Watches an answer as it streams in for the model repeating itself, which small models do on
+   * some pages: one kana or a blank line for thousands of tokens, or the same item again and again
+   * with other boxes. On a slow GPU that held the page, and every page waiting behind it, for
+   * minutes. push(text) returns true once the answer loops; salvage() is then the answer made of
+   * the items finished before the loop, or null when the answer has no list.
+   */
+  function loopGuard(schema) {
+    const props = schema?.properties || {};
+    const listKey = Object.keys(props).find(k => props[k]?.type === 'array');
+    const items = streamedItems(), done = [];
+    let text = '', checked = 0, run = 0, last = null;
+    return {
+      push(chunk) {
+        text += chunk;
+        for (const item of items.push(chunk)) {
+          // Alike: the same item apart from its box (finding text: the same words found ten times).
+          const {box, ...rest} = item, said = typeof rest.text === 'string' && rest.text.trim() ? JSON.stringify(rest) : null;
+          run = said && said === last ? run + 1 : 0;
+          last = said;
+          done.push(item);
+          if (run >= 9) return true;
+        }
+        if (text.length - checked < 48) return false;
+        checked = text.length;
+        return repeatsAtEnd(text);
+      },
+      salvage() {
+        if (!listKey) return null;
+        return {[listKey]: run >= 9 ? done.slice(0, done.length - run) : done};
+      }
+    };
+  }
+
+  // The last 240 characters are one short piece (up to 80 characters) over and over.
+  function repeatsAtEnd(text, span = 240) {
+    if (text.length < span + 1) return false;
+    const end = text.length;
+    for (let p = 1; p <= 80; p++) {
+      let k = 0;
+      while (k < span - p && text[end - 1 - k] === text[end - 1 - k - p]) k++;
+      if (k >= span - p) return true;
+    }
+    return false;
+  }
+
   function readChat(body) {
     if (body?.error) throw new Error(`Ollama: ${body.error}`);
     if (body?.done_reason === 'length') throw new Error('The model ran out of room before finishing.');
@@ -2636,6 +2682,8 @@
   function translationJob(s, lines, context, retry, terms = []) {
     return {
       schema: object({translations: {type: 'array', items: object({id: {type: 'integer'}, text: TEXT, sfx: {type: 'boolean'}})}}),
+      // About three times what the answer needs: a model rambling on stops there.
+      predict: Math.min(OLLAMA_OPTIONS.num_predict, 256 + lines.reduce((n, l) => n + 24 + 3 * [...String(l.original || '')].length, 0)),
       system: [
         `You translate comic lettering from ${/auto/i.test(s.source) ? 'its source language' : s.source} into ${s.target}. ${targetNotes(s.target)}`,
         'Input is JSON: "lines" (id + original, in reading order; "art": true when the line is drawn on the artwork rather than in a bubble, as sound effects usually are) optional "context" (earlier lines, already translated; do not return them) and optional "terms" (the reader\'s own translations of names and words: use them exactly wherever they appear).',
@@ -3602,7 +3650,7 @@
   if (typeof document === 'undefined') {
     if (typeof module !== 'undefined') module.exports = {parseTerms, termsIn, translationJob, detectedRegions, artTextJob, tiles, regionsFrom, wrapText, findBubbleText, looseRegions, cleanReading, cleanTranslation, shapeSpan, dedupe,
       planLooseErase, planColourErase, planOutlinedErase, planBeside, sfxCharacters, alongPath, sfxCount, eraseHolds, repaintHolds, largeSFXJob, consensusReading, editDistance, extremeInk, LARGE_SFX, applyErase, inpaint, smoothFill, isUntranslated, languageInfo, parseJSONLoose, readingOrder, overlap, coverage,
-      paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, createPipeline,
+      paperThreshold, detectionJob, sheetJob, translationJob, sourceHint, targetNotes, chatPayload, readChat, loopGuard, repeatsAtEnd, createPipeline,
       browserTarget, paintText, fitText, letteredBox, letteringBounds, drawText, streamedItems, mergeChatStream, letteringFonts, strokeStyle, knownSFX, findPanels, findBubbleAround, localPaper, DEFAULT_MODEL, OLLAMA};
     return;
   }
@@ -3651,6 +3699,7 @@
       });
       port.onDisconnect.addListener(() => fail('Network request failed.', 'NETWORK'));
       activeRequests.add(handle);
+      options.onHandle?.(handle);
       port.postMessage({type: 'start', method: options.method || 'GET', url: options.url, headers: options.headers || {},
         data: options.data, responseType: options.responseType || 'text', timeout: options.timeout || 120000, stream: !!options.onChunk,
         credentials: options.anonymous === false, referrer: options.headers?.Referer});
@@ -3670,7 +3719,7 @@
         const text = typeof response?.responseText === 'string' ? response.responseText : '';
         if (options.onChunk && text.length > seen) { const piece = text.slice(seen); seen = text.length; try { options.onChunk(piece); } catch {} }
       };
-      const {onChunk, ...rest} = options;
+      const {onChunk, onHandle, ...rest} = options;
       const handle = GM_xmlhttpRequest({
         timeout: 120000, anonymous: true, ...rest, ...(onChunk ? {onprogress: progress} : {}),
         onload: response => { activeRequests.delete(handle); progress(response); resolve(response); },
@@ -3679,6 +3728,7 @@
         onabort: () => fail('Stopped.', 'ABORT')
       });
       activeRequests.add(handle);
+      onHandle?.(handle);
     });
   }
 
@@ -3701,19 +3751,35 @@
 
   // A chat request whose answer streams in: onText hears each piece of the model's text as it
   // arrives. Returns the whole answer as /api/chat without streaming would.
-  async function ollamaChatStream(payload, timeout, onText) {
-    let pending = '';
+  // With a guard (loopGuard), an answer that starts repeating itself is stopped there, which also
+  // stops Ollama working on it, and what came before the loop is returned instead.
+  async function ollamaChatStream(payload, timeout, onText, guard) {
+    let pending = '', looped = false, handle = null;
     const onChunk = chunk => {
+      if (looped) return;
       const lines = (pending + chunk).split('\n');
       pending = lines.pop();
       for (const line of lines) {
         let part = null;
         try { part = JSON.parse(line); } catch {}
-        if (part?.message?.content) onText(part.message.content);
+        const content = part?.message?.content;
+        if (!content) continue;
+        onText?.(content);
+        if (guard?.push(content)) { looped = true; try { handle?.abort(); } catch {} return; }
       }
     };
-    const response = await request({method: 'POST', url: OLLAMA + '/api/chat', timeout, data: JSON.stringify(payload),
-      headers: {'Content-Type': 'application/json'}, onChunk});
+    let response;
+    try {
+      response = await request({method: 'POST', url: OLLAMA + '/api/chat', timeout, data: JSON.stringify(payload),
+        headers: {'Content-Type': 'application/json'}, onChunk, onHandle: h => { handle = h; }});
+    } catch (error) {
+      if (!looped) throw error;
+    }
+    if (looped) {
+      const salvaged = guard.salvage();
+      if (!salvaged) throw Object.assign(new Error('The model repeated itself.'), {code: 'LOOP'});
+      return {done: true, done_reason: 'loop', message: {role: 'assistant', content: JSON.stringify(salvaged)}};
+    }
     if (response.status < 200 || response.status >= 300) {
       let body = null;
       try { body = JSON.parse(response.responseText); } catch {}
@@ -4363,8 +4429,8 @@
       for (let attempt = 0; ; attempt++) {
         if (stopped) throw abortError();
         try {
-          if (onText) return readChat(await ollamaChatStream(chatPayload(settings.model, job, true), 300000, onText));
-          return readChat(await ollamaJSON('/api/chat', chatPayload(settings.model, job), 300000));
+          // Every answer streams in, so one that starts repeating itself is stopped early.
+          return readChat(await ollamaChatStream(chatPayload(settings.model, job, true), 300000, onText, loopGuard(job.schema)));
         } catch (error) {
           if (error.code === 'NETWORK' && attempt === 0) {
             launchOllama();
